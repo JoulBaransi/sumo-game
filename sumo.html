@@ -404,11 +404,37 @@ uniform float uSpec, uShin, uRim, uAlpha, uPool, uRecv, uFog, uGrid;
 uniform vec3 uKeyDir, uKeyCol, uFillDir, uFillCol, uBackDir, uBackCol, uSkyCol, uGndCol;
 uniform vec3 uFogCol, uPoolCfg;   // uPoolCfg = (start radius, end radius, depth)
 uniform vec2 uFogRange;           // (distance where fog starts, span)
+uniform vec4 uDet;                // (mottle amount, mottle scale, bump amount, bump scale)
+uniform vec2 uAo;                 // (strength, world Y the object stands on)
 uniform mat4 uLightVP;
 uniform sampler2D uShadow;
 
 // world distance to the nearest grid line spaced every s units
 float gridDist(float u, float s){ return abs(fract(u / s + 0.5) - 0.5) * s; }
+
+/* ── procedural surface detail ──
+   One hash-based value noise drives both the tonal mottling that stops a large
+   surface reading as flat vinyl and the normal perturbation that gives gravel,
+   clay and timber their tooth. Per-material amounts and scales arrive in uDet,
+   so a polished board and loose gravel share one code path. */
+float hash13(vec3 p){
+  p = fract(p * 0.1031);
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+float vnoise(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  vec4 a = vec4(hash13(i),                 hash13(i + vec3(1.0, 0.0, 0.0)),
+                hash13(i + vec3(0.0, 1.0, 0.0)), hash13(i + vec3(1.0, 1.0, 0.0)));
+  vec4 b = vec4(hash13(i + vec3(0.0, 0.0, 1.0)), hash13(i + vec3(1.0, 0.0, 1.0)),
+                hash13(i + vec3(0.0, 1.0, 1.0)), hash13(i + vec3(1.0, 1.0, 1.0)));
+  vec4 m = mix(a, b, f.z);
+  return mix(mix(m.x, m.y, f.x), mix(m.z, m.w, f.x), f.y);
+}
+// two octaves is enough for tonal break-up and keeps this cheap enough to run
+// on every fragment of a 34-unit floor plane
+float fbm2(vec3 p){ return vnoise(p) * 0.66 + vnoise(p * 2.17) * 0.34; }
 
 float shadowed(vec3 w, float ndl){
   vec4 lp = uLightVP * vec4(w, 1.0);
@@ -438,31 +464,78 @@ void main(){
     alb *= 1.0 - uPoolCfg.z * smoothstep(uPoolCfg.x, uPoolCfg.y, length(vW.xz));
   }
 
-  // procedural set surfaces — a whole shoji wall or plank floor in one draw
+  // procedural set surfaces — a whole shoji wall or plank floor in one draw.
+  // The pattern accumulates into gm rather than going straight onto albedo,
+  // so a backlit panel can dim its EMISSION under the lattice too: otherwise the
+  // kumiko would vanish the moment the paper started glowing.
+  float gm = 1.0;
   if (uGrid > 0.5){
     if (uGrid < 1.5){
       // shoji: paper panes divided by a dark kumiko lattice
       float u = abs(N.z) > 0.5 ? vW.x : vW.z;
       float line = min(smoothstep(0.026, 0.052, gridDist(u, 1.15)),
                        smoothstep(0.026, 0.052, gridDist(vW.y, 0.92)));
-      alb *= mix(0.15, 1.0, line);
+      gm *= mix(0.15, 1.0, line);
     } else if (uGrid < 2.5){
       // floorboards: seams every 0.92 units, each plank its own shade
       float plank = floor(vW.x / 0.92);
       float tone = 0.86 + 0.24 * fract(sin(plank * 78.233) * 43758.5453);
-      alb *= tone * mix(0.34, 1.0, smoothstep(0.006, 0.036, gridDist(vW.x, 0.92)));
+      gm *= tone * mix(0.34, 1.0, smoothstep(0.006, 0.036, gridDist(vW.x, 0.92)));
     } else if (uGrid < 3.5){
       // tatami: 2:1 mats bound with dark cloth edging
       float b = min(smoothstep(0.03, 0.075, gridDist(vW.x, 1.86)),
                     smoothstep(0.03, 0.075, gridDist(vW.z, 0.93)));
       float weave = 0.94 + 0.06 * sin(vW.z * 92.0);
-      alb *= weave * mix(0.26, 1.0, b);
-    } else {
+      gm *= weave * mix(0.26, 1.0, b);
+    } else if (uGrid < 4.5){
       // raked gravel: concentric rake lines swept around the ring, plus grit
       float rake = smoothstep(0.015, 0.075, gridDist(length(vW.xz), 0.44));
       float grit = 0.90 + 0.20 * fract(sin(dot(floor(vW.xz * 2.6),
                                               vec2(12.9898, 78.233))) * 43758.5453);
-      alb *= grit * mix(0.70, 1.0, rake);
+      gm *= grit * mix(0.70, 1.0, rake);
+    } else if (uGrid < 5.5){
+      // timber grain: fine streaks along the length with darker medullary rays
+      float g1 = fbm2(vec3(vW.x * 0.8, vW.y * 8.0, vW.z * 0.8));
+      gm *= 0.90 + 0.15 * g1 + 0.05 * sin((vW.y + g1 * 0.7) * 24.0);
+    } else if (uGrid < 6.5){
+      // bamboo culm: hard nodes every 1.55u with a pale collar above each, plus
+      // vertical fibre. Without the nodes a culm reads as plastic pipe.
+      float seg = gridDist(vW.y, 1.55);
+      float fib = 0.96 + 0.07 * fbm2(vec3(vW.x * 13.0, vW.y * 0.4, vW.z * 13.0));
+      gm *= fib * mix(0.40, 1.0, smoothstep(0.018, 0.070, seg))
+                * (1.0 - 0.30 * (1.0 - smoothstep(0.07, 0.24, seg)));
+    } else if (uGrid < 7.5){
+      // granite: coarse mineral speckle over a mottled base
+      gm *= 0.86 + 0.34 * step(0.80, hash13(floor(vW * 19.0)))
+                 + 0.16 * (fbm2(vW * 2.6) - 0.5);
+    } else {
+      // hiwadabuki — the cypress-bark roof of a yakata, laid in fine courses
+      float band = gridDist(vW.y, 0.155);
+      gm *= (0.90 + 0.17 * fbm2(vW * 4.5)) * mix(0.60, 1.0, smoothstep(0.0, 0.045, band));
+    }
+    alb *= gm;
+  }
+
+  /* Surface detail, faded out with distance. This is both the cheap thing and the
+     correct thing: the noise is the most expensive part of this shader and the
+     floor planes are 34 units across, but high-frequency tooth 30 units away also
+     aliases into shimmer as the camera drifts. Nobody can see gravel grain across
+     the hall anyway. */
+  float dcam = length(uCam - vW);
+  float lod = 1.0 - smoothstep(15.0, 29.0, dcam);
+  if (lod > 0.01){
+    // tonal mottling — the biggest thing separating a surface from a swatch
+    if (uDet.x > 0.0){
+      alb *= 1.0 + uDet.x * lod * (fbm2(vW * uDet.y) - 0.5) * 2.0;
+    }
+    // normal perturbation, kept tangential so silhouettes stay clean
+    if (uDet.z > 0.0){
+      vec3 q = vW * uDet.w;
+      float n0 = vnoise(q);
+      vec3 gr = vec3(vnoise(q + vec3(0.6, 0.0, 0.0)) - n0,
+                     vnoise(q + vec3(0.0, 0.6, 0.0)) - n0,
+                     vnoise(q + vec3(0.0, 0.0, 0.6)) - n0);
+      N = normalize(N - (gr - N * dot(gr, N)) * uDet.z * lod);
     }
   }
 
@@ -479,10 +552,15 @@ void main(){
 
   float fres = pow(1.0 - max(dot(N, V), 0.0), 3.2);
   col += uRim * fres * (uKeyCol * 0.55 + uSkyCol * 1.4);
-  col += uEmis;
 
-  float d = length(uCam - vW);
-  col = mix(col, uFogCol, clamp((d - uFogRange.x) / uFogRange.y, 0.0, 1.0) * uFog);
+  // contact occlusion: a prop's own base sees less of the sky, so darkening the
+  // bottom of it is what makes it read as SEATED rather than pasted onto the floor
+  if (uAo.x > 0.0){
+    col *= 1.0 - uAo.x * (1.0 - smoothstep(0.0, 0.60, vW.y - uAo.y));
+  }
+  col += uEmis * gm;
+
+  col = mix(col, uFogCol, clamp((dcam - uFogRange.x) / uFogRange.y, 0.0, 1.0) * uFog);
 
   fragColor = vec4(col, uAlpha);
 }`;
@@ -714,6 +792,60 @@ function buildBox() {
   return mesh(p, n, idx);
 }
 
+/* Cone with the apex up: base radius .5 at y=-.5, apex at y=+.5. Side normals
+   are slanted for the real cone angle so it shades as a cone, not a fan. */
+function buildCone(seg) {
+  const p = [], n = [], idx = [];
+  for (let i = 0; i <= seg; i++) {
+    const a = i / seg * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+    const nn = V3.norm([c, 0.5, s]);
+    p.push(c * 0.5, -0.5, s * 0.5); n.push(nn[0], nn[1], nn[2]);   // base rim
+    p.push(0, 0.5, 0);              n.push(nn[0], nn[1], nn[2]);   // apex
+  }
+  for (let i = 0; i < seg; i++) {
+    const a = i * 2;
+    idx.push(a + 2, a, a + 1);                                     // CCW from outside
+  }
+  // The base cap needs its own ring: reusing the rim vertices would give the cap
+  // the slanted side normals and it would shade as if it were still the cone wall.
+  const capBase = p.length / 3;
+  for (let i = 0; i <= seg; i++) {
+    const a = i / seg * Math.PI * 2;
+    p.push(Math.cos(a) * 0.5, -0.5, Math.sin(a) * 0.5); n.push(0, -1, 0);
+  }
+  for (let i = 1; i < seg - 1; i++)
+    idx.push(capBase, capBase + i, capBase + i + 1);
+  return mesh(p, n, idx);
+}
+
+/* Gable roof in unit bounds: ridge along X at the top, eaves down at ±Z. This is
+   the shape of a yakata, the suspended roof over a sumo dohyo. */
+function buildRoof() {
+  const p = [], n = [], idx = [];
+  const r0 = [-0.5, 0.5, 0], r1 = [0.5, 0.5, 0];
+  const a0 = [-0.5, -0.5, 0.5], a1 = [0.5, -0.5, 0.5];
+  const b0 = [-0.5, -0.5, -0.5], b1 = [0.5, -0.5, -0.5];
+  const face = verts => {
+    const base = p.length / 3, [A, B, C] = verts;
+    const u = [B[0]-A[0], B[1]-A[1], B[2]-A[2]];
+    const v = [C[0]-A[0], C[1]-A[1], C[2]-A[2]];
+    const nn = V3.norm([u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]]);
+    for (const q of verts) { p.push(q[0], q[1], q[2]); n.push(nn[0], nn[1], nn[2]); }
+    for (let i = 2; i < verts.length; i++) idx.push(base, base + i - 1, base + i);
+  };
+  face([a0, a1, r1, r0]);     // front slope
+  face([b1, b0, r0, r1]);     // back slope
+  face([r0, b0, a0]);         // gable ends — wound to face outward along ∓X
+  face([r1, a1, b1]);
+  return mesh(p, n, idx);
+}
+
+// a single plane in XY, for foliage cards and hanging banners (drawn unculled)
+function buildQuad() {
+  return mesh([-0.5,-0.5,0, 0.5,-0.5,0, 0.5,0.5,0, -0.5,0.5,0],
+              [0,0,1, 0,0,1, 0,0,1, 0,0,1], [0,1,2, 0,2,3]);
+}
+
 const MESH = {
   sphere:   buildSphere(30, 22),
   sphereLo: buildSphere(16, 12),
@@ -727,6 +859,10 @@ const MESH = {
   torus:    buildTorus(72, 14, 0.017),
   belt:     buildTorus(28, 12, 0.16),
   box:      buildBox(),
+  cone:     buildCone(24),
+  coneLo:   buildCone(10),
+  roof:     buildRoof(),
+  quad:     buildQuad(),
 };
 
 const quadVAO = (() => {
@@ -807,47 +943,86 @@ resize();
 /* ═════════════════════════════ MATERIALS ═════════════════════════════ */
 
 const MAT = {
-  clay:    { albedo: srgb("#b09668"), spec: 0.04, shin: 22,  rim: 0.03, fog: 1 },
-  clayDark:{ albedo: srgb("#7e6842"), spec: 0.04, shin: 14,  rim: 0.02, fog: 1 },
-  bale:    { albedo: srgb("#c39a52"), spec: 0.10, shin: 24,  rim: 0.06, fog: 1 },
-  janome:  { albedo: srgb("#c3ab7e"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1 },
-  chalk:   { albedo: srgb("#d9d2c2"), spec: 0.06, shin: 30,  rim: 0.02, fog: 1 },
+  clay:    { albedo: srgb("#b09668"), spec: 0.04, shin: 22,  rim: 0.03, fog: 1, det: [0.11, 1.3, 0.45, 7.0] },
+  clayDark:{ albedo: srgb("#7e6842"), spec: 0.04, shin: 14,  rim: 0.02, fog: 1, det: [0.10, 1.3, 0.40, 7.0] },
+  bale:    { albedo: srgb("#c39a52"), spec: 0.10, shin: 24,  rim: 0.06, fog: 1, det: [0.13, 2.2, 0.55, 9.0] },
+  janome:  { albedo: srgb("#c3ab7e"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1, det: [0.09, 1.6, 0.30, 6.0] },
+  chalk:   { albedo: srgb("#d9d2c2"), spec: 0.06, shin: 30,  rim: 0.02, fog: 1, det: [0.07, 2.0, 0.20, 8.0] },
   // ── the dojo ──
-  boards:  { albedo: srgb("#6d4c31"), spec: 0.30, shin: 58,  rim: 0.03, fog: 1 },
-  sand:    { albedo: srgb("#6a5c44"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1 },
-  woodDark:{ albedo: srgb("#2f2018"), spec: 0.26, shin: 54,  rim: 0.06, fog: 1 },
-  woodMid: { albedo: srgb("#59402c"), spec: 0.20, shin: 44,  rim: 0.05, fog: 1 },
-  shoji:   { albedo: srgb("#ddceaa"), spec: 0.06, shin: 26,  rim: 0.05, fog: 1 },
-  tatami:  { albedo: srgb("#8b8452"), spec: 0.07, shin: 24,  rim: 0.03, fog: 1 },
-  cushionA:{ albedo: srgb("#6d2028"), spec: 0.14, shin: 34,  rim: 0.05, fog: 1 },
-  cushionB:{ albedo: srgb("#232a48"), spec: 0.14, shin: 34,  rim: 0.05, fog: 1 },
-  basket:  { albedo: srgb("#9d7a42"), spec: 0.12, shin: 30,  rim: 0.04, fog: 1 },
-  salt:    { albedo: srgb("#e8e4da"), spec: 0.10, shin: 30,  rim: 0.03, fog: 1 },
-  bamboo:  { albedo: srgb("#9a8a4e"), spec: 0.22, shin: 46,  rim: 0.05, fog: 1 },
-  water:   { albedo: srgb("#243434"), spec: 0.72, shin: 150, rim: 0.10, fog: 1 },
+  boards:  { albedo: srgb("#6d4c31"), spec: 0.30, shin: 58,  rim: 0.03, fog: 1, det: [0.10, 0.5, 0.16, 3.0] },
+  sand:    { albedo: srgb("#6a5c44"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1, det: [0.14, 2.4, 0.55, 8.0] },
+  woodDark:{ albedo: srgb("#2f2018"), spec: 0.26, shin: 54,  rim: 0.06, fog: 1, det: [0.10, 0.7, 0.14, 4.0] },
+  woodMid: { albedo: srgb("#59402c"), spec: 0.20, shin: 44,  rim: 0.05, fog: 1, det: [0.11, 0.7, 0.16, 4.0] },
+  shoji:   { albedo: srgb("#ddceaa"), spec: 0.06, shin: 26,  rim: 0.05, fog: 1, det: [0.05, 1.2, 0.06, 5.0] },
+  tatami:  { albedo: srgb("#8b8452"), spec: 0.07, shin: 24,  rim: 0.03, fog: 1, det: [0.08, 1.4, 0.18, 5.0] },
+  cushionA:{ albedo: srgb("#6d2028"), spec: 0.14, shin: 34,  rim: 0.05, fog: 1, det: [0.10, 2.6, 0.22, 7.0] },
+  cushionB:{ albedo: srgb("#232a48"), spec: 0.14, shin: 34,  rim: 0.05, fog: 1, det: [0.10, 2.6, 0.22, 7.0] },
+  basket:  { albedo: srgb("#9d7a42"), spec: 0.12, shin: 30,  rim: 0.04, fog: 1, det: [0.13, 3.0, 0.50, 10.0] },
+  salt:    { albedo: srgb("#e8e4da"), spec: 0.10, shin: 30,  rim: 0.03, fog: 1, det: [0.10, 4.0, 0.50, 14.0] },
+  bamboo:  { albedo: srgb("#9a8a4e"), spec: 0.22, shin: 46,  rim: 0.05, fog: 1, det: [0.08, 1.0, 0.12, 4.0] },
+  water:   { albedo: srgb("#243434"), spec: 0.72, shin: 150, rim: 0.10, fog: 1, det: [0.03, 1.0, 0.10, 3.0] },
 
   // ── shrine grounds ──
-  gravel:  { albedo: srgb("#5c5a55"), spec: 0.06, shin: 22,  rim: 0.02, fog: 1 },
-  stone:   { albedo: srgb("#6e6d69"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1 },
-  stoneLt: { albedo: srgb("#8b8983"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1 },
-  vermil:  { albedo: srgb("#b0352a"), spec: 0.26, shin: 48,  rim: 0.08, fog: 1 },
-  shide:   { albedo: srgb("#e6e2d8"), spec: 0.10, shin: 30,  rim: 0.06, fog: 1 },
-  petal:   { albedo: srgb("#d9a7b0"), spec: 0.08, shin: 26,  rim: 0.04, fog: 1 },
-  rope:    { albedo: srgb("#a89566"), spec: 0.10, shin: 26,  rim: 0.04, fog: 1 },
+  gravel:  { albedo: srgb("#6a6155"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1,
+             det: [0.19, 2.6, 0.95, 10.0] },
+  stone:   { albedo: srgb("#6e6d69"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1, det: [0.14, 1.8, 0.42, 5.5] },
+  stoneLt: { albedo: srgb("#8b8983"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1, det: [0.14, 1.8, 0.42, 5.5] },
+  vermil:  { albedo: srgb("#b0352a"), spec: 0.26, shin: 48,  rim: 0.08, fog: 1, det: [0.06, 1.2, 0.10, 4.0] },
+  shide:   { albedo: srgb("#e6e2d8"), spec: 0.10, shin: 30,  rim: 0.06, fog: 1, det: [0.05, 2.0, 0.08, 6.0] },
+  petal:   { albedo: srgb("#d9a7b0"), spec: 0.08, shin: 26,  rim: 0.04, fog: 1, det: [0.06, 3.0, 0.00, 0.0] },
+  rope:    { albedo: srgb("#a89566"), spec: 0.10, shin: 26,  rim: 0.04, fog: 1, det: [0.14, 3.4, 0.60, 12.0] },
 
   // ── grand arena ──
-  arenaFl: { albedo: srgb("#26262c"), spec: 0.42, shin: 84,  rim: 0.03, fog: 1 },
-  masu:    { albedo: srgb("#544e33"), spec: 0.06, shin: 22,  rim: 0.02, fog: 1 },
-  tierWall:{ albedo: srgb("#191a20"), spec: 0.18, shin: 44,  rim: 0.04, fog: 1 },
+  arenaFl: { albedo: srgb("#4a4034"), spec: 0.16, shin: 40,  rim: 0.03, fog: 1,
+             det: [0.13, 1.8, 0.40, 7.0] },
+  masu:    { albedo: srgb("#43402a"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1,
+             det: [0.12, 1.4, 0.22, 5.0] },
+  tierWall:{ albedo: srgb("#191a20"), spec: 0.18, shin: 44,  rim: 0.04, fog: 1, det: [0.08, 1.0, 0.14, 4.0] },
 
   // ── bamboo grove ──
-  moss:    { albedo: srgb("#4f5c38"), spec: 0.10, shin: 28,  rim: 0.03, fog: 1 },
-  mossDk:  { albedo: srgb("#3d4a2b"), spec: 0.09, shin: 26,  rim: 0.03, fog: 1 },
-  culmA:   { albedo: srgb("#7c8f4c"), spec: 0.26, shin: 52,  rim: 0.10, fog: 1 },
-  culmB:   { albedo: srgb("#96a55a"), spec: 0.26, shin: 52,  rim: 0.10, fog: 1 },
-  culmC:   { albedo: srgb("#63763f"), spec: 0.24, shin: 48,  rim: 0.09, fog: 1 },
-  litter:  { albedo: srgb("#6d5f3a"), spec: 0.08, shin: 24,  rim: 0.03, fog: 1 },
-  flagst:  { albedo: srgb("#5e6058"), spec: 0.16, shin: 40,  rim: 0.04, fog: 1 },
+  moss:    { albedo: srgb("#3b4630"), spec: 0.08, shin: 24,  rim: 0.03, fog: 1,
+             det: [0.24, 1.0, 0.60, 3.2] },
+  mossDk:  { albedo: srgb("#2c3724"), spec: 0.07, shin: 22,  rim: 0.03, fog: 1,
+             det: [0.24, 1.2, 0.58, 3.4] },
+  culmA:   { albedo: srgb("#5d6b3a"), spec: 0.24, shin: 50,  rim: 0.11, fog: 1,
+             det: [0.11, 1.2, 0.16, 5.0] },
+  culmB:   { albedo: srgb("#71804a"), spec: 0.24, shin: 50,  rim: 0.11, fog: 1,
+             det: [0.11, 1.2, 0.16, 5.0] },
+  culmC:   { albedo: srgb("#48562e"), spec: 0.22, shin: 46,  rim: 0.09, fog: 1,
+             det: [0.11, 1.2, 0.16, 5.0] },
+  litter:  { albedo: srgb("#6d5f3a"), spec: 0.08, shin: 24,  rim: 0.03, fog: 1, det: [0.10, 3.0, 0.20, 8.0] },
+  flagst:  { albedo: srgb("#5e6058"), spec: 0.16, shin: 40,  rim: 0.04, fog: 1, det: [0.15, 1.6, 0.45, 5.0] },
+  // ── added for the venue detail pass ──
+  // backlit shoji: daylight coming THROUGH the paper. The kumiko lattice dims
+  // the emission along with the albedo, so the frame still reads as timber.
+  shojiLit:{ albedo: srgb("#cdbb96"), spec: 0.05, shin: 22, rim: 0.04, fog: 1,
+             emis: [0.62, 0.56, 0.42], det: [0.06, 1.2, 0.07, 5.0] },
+  beam:    { albedo: srgb("#241811"), spec: 0.22, shin: 46, rim: 0.05, fog: 1,
+             det: [0.11, 0.6, 0.16, 3.6] },
+  ceil:    { albedo: srgb("#191009"), spec: 0.14, shin: 34, rim: 0.03, fog: 1,
+             det: [0.10, 0.5, 0.12, 3.0] },
+  noren:   { albedo: srgb("#2d3b56"), spec: 0.10, shin: 26, rim: 0.06, fog: 1,
+             det: [0.09, 2.2, 0.18, 6.0] },
+  // shrine
+  tree:    { albedo: srgb("#2c3b2a"), spec: 0.09, shin: 24, rim: 0.09, fog: 1,
+             det: [0.24, 1.1, 0.42, 2.6] },
+  treeFar: { albedo: srgb("#212d20"), spec: 0.07, shin: 22, rim: 0.07, fog: 1,
+             det: [0.22, 0.9, 0.34, 2.2] },
+  chochin: { albedo: srgb("#3a2415"), spec: 0.04, shin: 18, rim: 0.03, fog: 0,
+             emis: [1.02, 0.50, 0.19] },
+  // arena
+  rail:    { albedo: srgb("#20222a"), spec: 0.30, shin: 60, rim: 0.07, fog: 1,
+             det: [0.08, 1.0, 0.14, 4.0] },
+  nobori:  { albedo: srgb("#8d7038"), spec: 0.10, shin: 26, rim: 0.06, fog: 1,
+             det: [0.10, 2.0, 0.18, 6.0] },
+  rig:     { albedo: [0, 0, 0], spec: 0, shin: 1, rim: 0, fog: 0,
+             emis: [2.9, 2.7, 2.3] },
+  // grove
+  leaf:    { albedo: srgb("#37492a"), spec: 0.14, shin: 32, rim: 0.12, fog: 1,
+             det: [0.26, 2.2, 0.34, 5.0] },
+  leafDk:  { albedo: srgb("#25331b"), spec: 0.11, shin: 28, rim: 0.09, fog: 1,
+             det: [0.26, 2.0, 0.34, 4.6] },
+
   hair:    { albedo: srgb("#241c22"), spec: 0.55, shin: 90,  rim: 0.14, fog: 0 },
   eye:     { albedo: srgb("#0a0b10"), spec: 0.85, shin: 160, rim: 0.10, fog: 0 },
   paper:   { albedo: [0,0,0], spec: 0, shin: 1, rim: 0, emis: [2.35, 1.52, 0.78], fog: 0 },
@@ -1878,8 +2053,11 @@ const ENV = {
   fogRange: [24, 46], pool: [2.5, 13.0, 0.56], exposure: 1.14, bloom: 0.58,
 };
 
+/* Widened from ±9.5 so ringside props and the bamboo out at r≈12 can cast too —
+   nothing grounds a prop like its own shadow. At 2048² that is 15mm per texel,
+   still finer than the fighters' own shadow needs. */
 const lightVP = (() => {
-  const d = 22, ext = 9.5;
+  const d = 26, ext = 15.5;
   const eye = [KEY_DIR[0]*d, KEY_DIR[1]*d, KEY_DIR[2]*d];
   return M4.mul(M4.ortho(-ext, ext, -ext, ext, 1, 46), M4.lookAt(eye, [0,0,0], [0,1,0]));
 })();
@@ -1899,24 +2077,31 @@ function push(mesh, m, mat, opts) {
     grid: opts.grid || 0,
     cull: opts.cull || gl.BACK,
     blend: opts.blend || null,
+    // contact occlusion: `ao` is the strength, `aoY` the ground it stands on
+    ao: opts.ao === undefined ? 0 : opts.ao,
+    aoY: opts.aoY === undefined ? 0 : opts.aoY,
   });
 }
 
+const NO_DET = [0, 0, 0, 0];
+
 /* ---------- the studio ---------- */
 
-/* Room dimensions are dictated by the 55° camera: only the back wall and the
-   very rear of the side walls can enter frame, so the hall is pulled in tight
-   to put a band of shoji across the top of the shot. */
+/* Room dimensions are dictated by the 55° camera. The visible envelope narrows
+   fast with depth — at z=-8 only the first 3.4 units above the floor are still on
+   screen — so the hall is pulled in tight and everything worth seeing sits low. */
 const DOJO = { back: -9.6, side: 9.8, deckY: 0.30, sill: 0.30 };
 
-// A shoji screen wall: dark timber base, paper panels, and a head beam. The
-// kumiko lattice is procedural, so each wall is three draws instead of dozens.
+/* A shoji screen wall: dark timber base, backlit paper, and a head beam. The
+   kumiko lattice is procedural, so a whole wall is three draws. The paper is
+   emissive because daylight coming THROUGH it is the whole character of the
+   room — as flat albedo it read as a black grid. */
 function shojiWall(cx, cz, width, ry) {
   const y0 = DOJO.deckY, base = DOJO.sill;
   push(MESH.box, M4.trs(cx, y0 + base / 2, cz, 0, ry, 0, width, base, 0.26),
        MAT.woodDark, { cast: false });
   push(MESH.box, M4.trs(cx, y0 + base + 2.1, cz, 0, ry, 0, width, 4.2, 0.13),
-       MAT.shoji, { cast: false, grid: 1 });
+       MAT.shojiLit, { cast: false, grid: 1 });
   push(MESH.box, M4.trs(cx, y0 + base + 4.32, cz, 0, ry, 0, width, 0.26, 0.34),
        MAT.woodDark, { cast: false });
 }
@@ -1924,17 +2109,26 @@ function shojiWall(cx, cz, width, ry) {
 // raised tatami gallery where the wrestlers wait and watch
 function gallery(cx, cz, w, d) {
   push(MESH.box, M4.trs(cx, DOJO.deckY / 2, cz, 0, 0, 0, w, DOJO.deckY, d),
-       MAT.woodMid, { cast: false });
+       MAT.woodMid, { cast: false, grid: 5 });
   push(MESH.box, M4.trs(cx, DOJO.deckY + 0.035, cz, 0, 0, 0, w - 0.14, 0.07, d - 0.14),
        MAT.tatami, { cast: false, grid: 3 });
 }
 
-// andon — a standing paper lamp. These are the visible light sources now.
+// andon — a standing paper lamp, and the visible light source in the room
 function andon(x, z) {
-  push(MESH.box, M4.trs(x, 0.05, z, 0, 0, 0, 0.62, 0.10, 0.62), MAT.woodDark);
+  push(MESH.box, M4.trs(x, 0.05, z, 0, 0, 0, 0.62, 0.10, 0.62), MAT.woodDark,
+       { ao: 0.4, aoY: 0 });
   push(MESH.box, M4.trs(x, 0.53, z, 0, 0, 0, 0.50, 0.86, 0.50), MAT.paper,
        { cast: false, recv: false });
-  push(MESH.box, M4.trs(x, 1.00, z, 0, 0, 0, 0.68, 0.09, 0.68), MAT.woodDark);
+  push(MESH.box, M4.trs(x, 1.00, z, 0, 0, 0, 0.68, 0.09, 0.68), MAT.woodDark,
+       { cast: false });
+}
+
+// zabuton — a squab cushion. A flat box read as a paper card, so it is a
+// squashed sphere with a seam instead, and it sits in its own contact shadow.
+function zabuton(x, z, ry, mat) {
+  push(MESH.sphereLo, M4.trs(x, 0.435, z, 0, ry, 0, 0.78, 0.16, 0.78), mat,
+       { ao: 0.30, aoY: DOJO.deckY });
 }
 
 function dojo() {
@@ -1943,7 +2137,8 @@ function dojo() {
   // ── keiko-ba: the polished boarded floor the dohyo is built on ──
   push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.boards,
        { cast: false, pool: true, grid: 2 });
-  // a scatter of swept sand around the ring
+  // swept sand drifting out from the ring, edge broken up by the noise so it
+  // stops reading as a decal pasted on the boards
   push(MESH.disc, M4.trs(0, 0.014, 0, 0, 0, 0, 13.2, 1, 13.2), MAT.sand,
        { cast: false, pool: true });
 
@@ -1955,25 +2150,46 @@ function dojo() {
   // ── hashira: timber posts on the bays ──
   for (const x of [-S, -5, 0, 5, S])
     push(MESH.box, M4.trs(x, 2.9, B, 0, 0, 0, 0.44, 5.2, 0.44), MAT.woodDark,
-         { cast: false });
+         { cast: false, grid: 5 });
   for (const sx of [-1, 1])
-    push(MESH.box, M4.trs(sx * S, 2.9, B + 5.1, 0, 0, 0, 0.44, 5.2, 0.44), MAT.woodDark,
-         { cast: false });
+    push(MESH.box, M4.trs(sx * S, 2.9, B + 5.1, 0, 0, 0, 0.44, 5.2, 0.44),
+         MAT.woodDark, { cast: false, grid: 5 });
+
+  /* ── hari: two roof beams, and only two ──
+     Overhead structure is nearly impossible at this pitch. A beam has to stay
+     above the sightline to a fighter on the back edge yet below the top of
+     frame, and both limits fall ~0.7 per unit of depth, so the usable gap is a
+     thin wedge that only exists close to the camera. A first pass spaced four
+     beams back to z=-6.8 and they landed at y≈3.2 — a black band straight
+     across the shoji. These two sit where the wedge is actually open. */
+  for (const [z, y] of [[3.6, 10.6], [1.1, 8.7]])
+    push(MESH.box, M4.trs(0, y, z, 0, 0, 0, S * 2.05, 0.26, 0.34), MAT.beam,
+         { cast: false, recv: false });
 
   // ── raised tatami gallery, set back clear of the landing zone ──
   gallery(0, B + 1.15, S * 2 - 1.0, 2.1);
   gallery(-8.7, B + 4.0, 1.8, 3.6);
   gallery( 8.7, B + 4.0, 1.8, 3.6);
 
-  // zabuton cushions laid out on the tatami
   const cush = [[-7.2, -8.5, 0.20], [-3.6, -8.4, -0.10], [0, -8.5, 0.05],
                 [3.6, -8.4, 0.15], [7.2, -8.5, -0.20],
                 [-8.7, -6.6, 1.45], [-8.7, -4.6, 1.60],
                 [ 8.7, -6.6, 1.50], [ 8.7, -4.6, 1.30]];
-  for (let i = 0; i < cush.length; i++) {
-    const [x, z, r] = cush[i];
-    push(MESH.box, M4.trs(x, 0.415, z, 0, r, 0, 0.76, 0.10, 0.76),
-         i % 2 ? MAT.cushionB : MAT.cushionA, { cast: false });
+  cush.forEach(([x, z, r], i) =>
+    zabuton(x, z, r, i % 2 ? MAT.cushionB : MAT.cushionA));
+
+  // deshi watching from the gallery — a dojo with nobody in it reads as a set
+  const watchers = [[-5.4, -8.3], [-1.8, -8.4], [1.8, -8.3], [5.4, -8.4],
+                    [-8.7, -5.6], [8.7, -5.6]];
+  for (let i = 0; i < watchers.length; i++) {
+    const [x, z] = watchers[i], sc = 0.94 + (i % 3) * 0.07;
+    const ry = aimYaw(x, z);
+    push(MESH.sphereLo, M4.trs(x, DOJO.deckY + 0.40 * sc, z, 0, ry, 0,
+         0.86 * sc, 0.74 * sc, 0.70 * sc), CROWD_MAT[i % CROWD_MAT.length],
+         { ao: 0.5, aoY: DOJO.deckY });
+    push(MESH.sphereLo, M4.trs(x, DOJO.deckY + 0.86 * sc, z, 0, ry, 0,
+         0.25 * sc, 0.27 * sc, 0.25 * sc), CROWD_SKIN[i % CROWD_SKIN.length],
+         { cast: false, ao: 0.3, aoY: DOJO.deckY });
   }
 
   // ── lamps framing the ring ──
@@ -1981,17 +2197,22 @@ function dojo() {
   andon(-7.6, 2.8);  andon(7.6, 2.8);
 
   // ── ringside props: chikara-mizu pail, salt basket, a bamboo broom ──
-  push(MESH.cyl, M4.trs(6.1, 0.18, 2.5, 0, 0, 0, 0.62, 0.36, 0.62), MAT.woodMid);
+  push(MESH.cyl, M4.trs(6.1, 0.18, 2.5, 0, 0, 0, 0.62, 0.36, 0.62), MAT.woodMid,
+       { ao: 0.45, aoY: 0, grid: 5 });
   push(MESH.cyl, M4.trs(6.1, 0.35, 2.5, 0, 0, 0, 0.54, 0.05, 0.54), MAT.woodDark,
        { cast: false });
-  push(MESH.box, M4.trs(6.62, 0.40, 2.16, 0, -0.5, 0.32, 0.055, 0.055, 0.9), MAT.bamboo);
+  push(MESH.box, M4.trs(6.62, 0.40, 2.16, 0, -0.5, 0.32, 0.055, 0.055, 0.9),
+       MAT.bamboo);
 
-  push(MESH.cyl, M4.trs(-6.1, 0.15, 2.7, 0, 0, 0, 0.68, 0.30, 0.68), MAT.basket);
+  push(MESH.cyl, M4.trs(-6.1, 0.15, 2.7, 0, 0, 0, 0.68, 0.30, 0.68), MAT.basket,
+       { ao: 0.45, aoY: 0 });
   push(MESH.cyl, M4.trs(-6.1, 0.31, 2.7, 0, 0, 0, 0.56, 0.05, 0.56), MAT.salt,
        { cast: false });
 
-  push(MESH.box, M4.trs(-6.9, 0.06, -1.6, 0, 0.42, 0, 0.075, 0.075, 2.3), MAT.bamboo);
-  push(MESH.box, M4.trs(-6.55, 0.05, -2.65, 0, 0.42, 0, 0.62, 0.06, 0.30), MAT.bamboo);
+  push(MESH.box, M4.trs(-6.9, 0.06, -1.6, 0, 0.42, 0, 0.075, 0.075, 2.3),
+       MAT.bamboo);
+  push(MESH.box, M4.trs(-6.55, 0.05, -2.65, 0, 0.42, 0, 0.62, 0.06, 0.30),
+       MAT.bamboo);
 }
 
 /* ═══════════════════ VENUE 2 — SHRINE GROUNDS (奉納) ═══════════════════ */
@@ -2001,21 +2222,70 @@ function dojo() {
 const scatter = (() => { let s = 20260728;
   return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; })();
 
-const PETALS = Array.from({ length: 56 }, () => {
-  const a = scatter() * 6.2832, r = 5.1 + scatter() * 7.0;
+const PETALS = Array.from({ length: 90 }, () => {
+  const a = scatter() * 6.2832, r = 5.1 + scatter() * 7.4;
   return { x: Math.cos(a) * r, z: Math.sin(a) * r,
-           ry: scatter() * 3.14, s: 0.13 + scatter() * 0.12 };
+           ry: scatter() * 3.14, s: 0.085 + scatter() * 0.075 };
+});
+
+/* Planting has to follow the visible envelope, which is the whole difficulty of
+   this camera. Straight back at z=-10 barely 2 units of height are still on
+   screen, so nothing tree-shaped can live there — a first pass put big foliage
+   spheres round the whole arc and they read as black balloons at the frame
+   edges. Out to the SIDES at z=-2..-7 there are 4.7 to 7.4 units to play with,
+   so that is where the actual trees go, and the back arc gets a low hedge. */
+/* Trees were tried here and cut: at z=-3 the frame ceiling is ~6.5, so a canopy
+   is sliced off at the top and the trunk crosses the shot as a bare diagonal
+   bar. Anything much above waist height in the back half of this set reads as an
+   unidentifiable dark mass. What the envelope WILL carry is a continuous low
+   hedge, so the planting is all hedge and it is packed dense enough to read as
+   one bank of foliage rather than as separate lumps. */
+const HEDGE = Array.from({ length: 132 }, (_, i) => {
+  const a = -Math.PI * 0.5 + (i / 131 - 0.5) * 4.5;
+  const r = 10.3 + scatter() * 2.6;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
+           s: 1.35 + scatter() * 1.05, h: 0.66 + scatter() * 0.72,
+           ry: scatter() * 3.14, far: scatter() > 0.5 };
 });
 
 // ishidoro — a stone lantern; the fire box is emissive so it blooms at night
 function ishidoro(x, z) {
-  push(MESH.cyl, M4.trs(x, 0.09, z, 0, 0, 0, 0.88, 0.18, 0.88), MAT.stone);
-  push(MESH.cyl, M4.trs(x, 0.42, z, 0, 0, 0, 0.34, 0.50, 0.34), MAT.stone);
-  push(MESH.cyl, M4.trs(x, 0.75, z, 0, 0, 0, 0.80, 0.16, 0.80), MAT.stoneLt);
+  push(MESH.cyl, M4.trs(x, 0.09, z, 0, 0, 0, 0.88, 0.18, 0.88), MAT.stone,
+       { ao: 0.45, aoY: 0, grid: 7 });
+  push(MESH.cyl, M4.trs(x, 0.42, z, 0, 0, 0, 0.34, 0.50, 0.34), MAT.stone,
+       { grid: 7 });
+  push(MESH.cyl, M4.trs(x, 0.75, z, 0, 0, 0, 0.80, 0.16, 0.80), MAT.stoneLt,
+       { grid: 7 });
   push(MESH.box, M4.trs(x, 1.01, z, 0, 0, 0, 0.54, 0.42, 0.54), MAT.paper,
        { cast: false, recv: false });
-  push(MESH.box, M4.trs(x, 1.29, z, 0, 0.785, 0, 1.00, 0.20, 1.00), MAT.stoneLt);
-  push(MESH.sphereLo, M4.trs(x, 1.46, z, 0, 0, 0, 0.21, 0.25, 0.21), MAT.stoneLt);
+  push(MESH.box, M4.trs(x, 1.29, z, 0, 0.785, 0, 1.00, 0.20, 1.00), MAT.stoneLt,
+       { grid: 7 });
+  push(MESH.sphereLo, M4.trs(x, 1.46, z, 0, 0, 0, 0.21, 0.25, 0.21), MAT.stoneLt,
+       { cast: false });
+}
+
+/* Komainu — the guardian lion-dogs. The first pass was three bare spheres and
+   read as a snowman, so this adds a mane, a muzzle and a curled tail: at this
+   distance the silhouette is the only thing doing the work. */
+function komainu(sx) {
+  const x = sx * 5.7, z = -7.7, M = MAT.stoneLt;
+  push(MESH.box, M4.trs(x, 0.30, z, 0, 0, 0, 1.05, 0.60, 1.05), MAT.stone,
+       { ao: 0.5, aoY: 0, grid: 7 });
+  push(MESH.sphere, M4.trs(x, 0.88, z + 0.04, -0.16, 0, 0, 0.60, 0.68, 0.94), M,
+       { grid: 7 });                                            // haunches
+  push(MESH.sphere, M4.trs(x, 1.30, z - 0.26, 0, 0, 0, 0.46, 0.46, 0.44), M,
+       { grid: 7 });                                            // skull
+  push(MESH.cone, M4.trs(x, 1.30, z - 0.26, 0, 0, 0, 0.78, 0.52, 0.78), M,
+       { cast: false, grid: 7 });                               // mane
+  push(MESH.sphereLo, M4.trs(x, 1.20, z - 0.55, 0, 0, 0, 0.24, 0.20, 0.26), M,
+       { cast: false });                                        // muzzle
+  for (const e of [-1, 1])
+    push(MESH.sphereLo, M4.trs(x + e * 0.19, 1.50, z - 0.20, 0, 0, 0,
+         0.15, 0.19, 0.13), M, { cast: false });                // ears
+  push(MESH.box, M4.trs(x, 0.74, z - 0.60, 0.30, 0, 0, 0.48, 0.16, 0.62), M,
+       { grid: 7 });                                            // forelegs
+  push(MESH.cone, M4.trs(x, 1.26, z + 0.50, -0.7, 0, 0, 0.34, 0.80, 0.34), M,
+       { cast: false, grid: 7 });                               // tail
 }
 
 function shrine() {
@@ -2026,54 +2296,60 @@ function shrine() {
   // tamagaki — the low stone post fence enclosing the grounds
   for (let i = -6; i <= 6; i++)
     push(MESH.box, M4.trs(i * 1.55, 0.42, -9.5, 0, 0, 0, 0.26, 0.84, 0.26),
-         MAT.stone, { cast: false });
+         MAT.stone, { cast: false, grid: 7 });
   push(MESH.box, M4.trs(0, 0.80, -9.5, 0, 0, 0, 19.4, 0.15, 0.36), MAT.stoneLt,
-       { cast: false });
+       { cast: false, grid: 7 });
   for (const sx of [-1, 1]) {
     for (let i = 0; i < 4; i++)
-      push(MESH.box, M4.trs(sx * 9.5, 0.42, -8.0 + i * 1.55, 0, 0, 0, 0.26, 0.84, 0.26),
-           MAT.stone, { cast: false });
-    push(MESH.box, M4.trs(sx * 9.5, 0.80, -5.7, 0, 0, 0, 0.36, 0.15, 5.4), MAT.stoneLt,
-         { cast: false });
+      push(MESH.box, M4.trs(sx * 9.5, 0.42, -8.0 + i * 1.55, 0, 0, 0,
+           0.26, 0.84, 0.26), MAT.stone, { cast: false, grid: 7 });
+    push(MESH.box, M4.trs(sx * 9.5, 0.80, -5.7, 0, 0, 0, 0.36, 0.15, 5.4),
+         MAT.stoneLt, { cast: false, grid: 7 });
   }
 
-  // A torii can't read here — at this pitch only its bottom ~1.9u is in frame.
+  // the hedge bank enclosing the grounds
+  for (const b of HEDGE)
+    push(MESH.sphereLo, M4.trs(b.x, b.h * 0.44, b.z, 0, b.ry, 0,
+         b.s, b.h, b.s * 0.82), b.far ? MAT.treeFar : MAT.tree,
+         { cast: false, ao: 0.35, aoY: 0 });
+
+  // A torii cannot read here — at this pitch only its bottom ~1.9u is in frame.
   // Low shrine cues work instead: the stone approach steps and a pair of komainu.
   for (let i = 0; i < 4; i++)
     push(MESH.box, M4.trs(0, 0.10 + i * 0.19, -10.1 - i * 0.62, 0, 0, 0,
-         7.4 - i * 0.5, 0.20 + i * 0.19, 0.62), MAT.stoneLt, { cast: false });
+         7.4 - i * 0.5, 0.20 + i * 0.19, 0.62), MAT.stoneLt,
+         { cast: false, grid: 7 });
 
-  for (const sx of [-1, 1]) {
-    const x = sx * 5.7, z = -7.7;
-    push(MESH.box, M4.trs(x, 0.30, z, 0, 0, 0, 1.00, 0.60, 1.00), MAT.stone,
-         { cast: false });                                        // plinth
-    push(MESH.sphere, M4.trs(x, 0.86, z, -0.16, 0, 0, 0.62, 0.66, 0.92), MAT.stoneLt,
-         { cast: false });                                        // haunches
-    push(MESH.sphere, M4.trs(x, 1.24, z - 0.24, 0, 0, 0, 0.52, 0.50, 0.50), MAT.stoneLt,
-         { cast: false });                                        // head
-    push(MESH.sphereLo, M4.trs(x - sx * 0.16, 1.42, z - 0.30, 0, 0, 0, 0.20, 0.22, 0.20),
-         MAT.stoneLt, { cast: false });                           // ear
-    push(MESH.sphereLo, M4.trs(x + sx * 0.16, 1.42, z - 0.30, 0, 0, 0, 0.20, 0.22, 0.20),
-         MAT.stoneLt, { cast: false });
-    push(MESH.box, M4.trs(x, 0.72, z - 0.56, 0.30, 0, 0, 0.46, 0.16, 0.62), MAT.stoneLt,
-         { cast: false });                                        // forelegs
-  }
+  komainu(-1); komainu(1);
 
   // shimenawa strung between two vermillion posts, with hanging shide
   for (const sx of [-1, 1])
-    push(MESH.cyl, M4.trs(sx * 7.0, 1.05, -8.6, 0, 0, 0, 0.34, 2.10, 0.34), MAT.vermil,
-         { cast: false });
+    push(MESH.cyl, M4.trs(sx * 7.0, 1.05, -8.6, 0, 0, 0, 0.34, 2.10, 0.34),
+         MAT.vermil, { cast: false });
   push(MESH.box, M4.trs(0, 1.86, -8.6, 0, 0, 0, 14.0, 0.20, 0.20), MAT.rope,
        { cast: false });
   for (let k = -4; k <= 4; k++)
-    push(MESH.box, M4.trs(k * 1.5, 1.50, -8.58, 0, 0, 0, 0.20, 0.52, 0.03), MAT.shide,
-         { cast: false });
+    push(MESH.box, M4.trs(k * 1.5, 1.50, -8.58, 0, 0, 0, 0.20, 0.52, 0.03),
+         MAT.shide, { cast: false });
+
+  /* Chochin strung across the grounds. These are the reason to set the venue at
+     night: small emissive sources that the bloom picks up, hung low enough to
+     stay inside the visible envelope at z=-7. */
+  push(MESH.box, M4.trs(0, 2.72, -5.2, 0, 0, 0, 17.0, 0.05, 0.05), MAT.rope,
+       { cast: false, recv: false });
+  for (let i = -6; i <= 6; i++) {
+    const x = i * 1.36, sag = 0.24 * (1.0 - (i / 6) * (i / 6));
+    push(MESH.box, M4.trs(x, 2.68 - sag, -5.2, 0, 0, 0, 0.03, 0.24, 0.03),
+         MAT.rope, { cast: false, recv: false });
+    push(MESH.cyl, M4.trs(x, 2.34 - sag, -5.2, 0, 0, 0, 0.30, 0.42, 0.30),
+         MAT.chochin, { cast: false, recv: false });
+  }
 
   ishidoro(-7.5, -5.8); ishidoro(7.5, -5.8);
   ishidoro(-8.1, 2.6);  ishidoro(8.1, 2.6);
 
   for (const p of PETALS)
-    push(MESH.box, M4.trs(p.x, 0.012, p.z, 0, p.ry, 0, p.s, 0.016, p.s * 0.62),
+    push(MESH.box, M4.trs(p.x, 0.012, p.z, 0, p.ry, 0, p.s, 0.012, p.s * 0.6),
          MAT.petal, { cast: false });
 }
 
@@ -2081,79 +2357,206 @@ function shrine() {
 
 const TIERS = [[9.6, 0.42], [12.1, 0.90], [14.6, 1.40]];
 
-const SEATS = (() => {
+// aiming a rig at the ring: a yaw of ry sends local +Z to (-sin ry, 0, cos ry)
+const aimYaw = (x, z) => Math.atan2(x, -z);
+
+/* A crowd is what turns three concentric rings into a venue. Each spectator is a
+   squashed body plus a head, and because the camera only ever sees the far arc of
+   the bowl, that is where they matter — the near arc is off the sides of frame. */
+// Kept deliberately dark and close in value. A crowd seen from the far side of a
+// hall is a low-contrast mass; the first pass used saturated, separated tones and
+// read as a tray of painted eggs.
+const CROWD_MAT = ["#2a2622", "#232a2e", "#302623", "#20262a", "#2b2620",
+                   "#26232a", "#322a22", "#212630", "#2c2523"].map(h => ({
+  albedo: srgb(h), spec: 0.015, shin: 18, rim: 0.02, fog: 1,
+  det: [0.16, 3.0, 0.24, 8.0] }));
+// Heads read as bright dots at this distance, so the skin tones are pulled well
+// down and the rim killed — a crowd should be a dark mass with faces implied.
+const CROWD_SKIN = ["#5c4634", "#4c3928", "#66503c", "#403022"].map(h => ({
+  albedo: srgb(h), spec: 0.02, shin: 18, rim: 0.015, fog: 1 }));
+
+const CROWD = (() => {
   const out = [];
   for (let t = 0; t < TIERS.length; t++) {
-    const [r, h] = TIERS[t], n = 12 + t * 5;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * 6.2832 + t * 0.24;
-      const rr = r * 0.90;
-      out.push({ x: Math.cos(a) * rr, z: Math.sin(a) * rr, y: h + 0.055,
-                 ry: -a, c: (i + t) % 2 });
+    const [r, h] = TIERS[t];
+    /* Three staggered rows per tier. Evenly spaced arcs of identical ellipsoids
+       read as strings of beads, so radius, height, scale, proportion and angle
+       all get jitter, and roughly one seat in twelve is left empty. The front
+       arc is skipped entirely — at z>4.5 it is either behind the camera or
+       looming in the bottom corners as a row of dark lumps. */
+    for (let row = 0; row < 3; row++) {
+      const rr0 = r * (0.785 + row * 0.075);
+      const n = Math.round(6.2832 * rr0 / 0.74);
+      for (let i = 0; i < n; i++) {
+        if (scatter() < 0.085) continue;
+        const a = (i / n) * 6.2832 + t * 0.29 + (row * 0.37 + scatter() * 0.5) / n * 6.2832;
+        const rr = rr0 + (scatter() - 0.5) * 0.34;
+        const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+        if (z > 4.5) continue;
+        out.push({ x, z, y: h + (scatter() - 0.5) * 0.07,
+                   ry: aimYaw(x, z) + (scatter() - 0.5) * 0.8,
+                   s: 0.84 + scatter() * 0.34,
+                   w: 0.86 + scatter() * 0.30,
+                   c: CROWD_MAT[(scatter() * CROWD_MAT.length) | 0],
+                   k: CROWD_SKIN[(scatter() * CROWD_SKIN.length) | 0] });
+      }
     }
   }
   return out;
 })();
 
+// the five shinpan, seated in black at the ring apron — unmistakably sumo
+const SHINPAN = [0, 1, 2, 3, 4].map(i => {
+  const a = -Math.PI / 2 + (i - 2) * 0.62;
+  return { x: Math.cos(a) * 6.6, z: Math.sin(a) * 6.6, ry: 0 };
+}).map(p => ({ ...p, ry: aimYaw(p.x, p.z) }));
+
 function arena() {
   push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.arenaFl,
        { cast: false, pool: true });
 
-  // masu-seki — concentric tiers of tatami box seats. The risers are drawn with
-  // front-face culling so we see the inside of the bowl and the near wall never
-  // blocks the ring.
-  // The tiers take the pool falloff too, so the seating recedes into the dark
-  // instead of out-glowing the ring.
+  // masu-seki — concentric tiers of tatami box seats. Risers are front-face
+  // culled so we see the inside of the bowl and the near wall never blocks
+  // the ring.
   for (const [r, h] of TIERS) {
     const inner = r * 0.79;
     push(MESH.cylOpen, M4.trs(0, h / 2, 0, 0, 0, 0, inner * 2, h, inner * 2),
          MAT.tierWall, { cast: false, cull: gl.FRONT, pool: true });
     push(MESH.tier, M4.trs(0, h, 0, 0, 0, 0, r * 2, 1, r * 2), MAT.masu,
          { cast: false, grid: 3, pool: true });
+    // A timber lip on each tier edge is what makes the bowl read as stepped
+    // seating rather than a flat target. Scale the torus uniformly — stretching
+    // it on x/z alone gives an oval tube.
+    const S = inner * 2;
+    push(MESH.torus, M4.trs(0, h + 0.035, 0, 0, 0, 0, S, S, S), MAT.woodMid,
+         { cast: false, pool: true });
   }
-  for (const s of SEATS)
-    push(MESH.box, M4.trs(s.x, s.y, s.z, 0, s.ry, 0, 0.74, 0.10, 0.74),
-         s.c ? MAT.cushionB : MAT.cushionA, { cast: false, pool: true });
+
+  for (const c of CROWD) {
+    push(MESH.sphereLo, M4.trs(c.x, c.y + 0.23 * c.s, c.z, 0, c.ry, 0,
+         1.02 * c.s * c.w, 0.50 * c.s, 0.62 * c.s), c.c,
+         { cast: false, pool: true, ao: 0.66, aoY: c.y });
+    push(MESH.sphereLo, M4.trs(c.x, c.y + 0.47 * c.s, c.z, 0, c.ry, 0,
+         0.21 * c.s, 0.20 * c.s, 0.21 * c.s), c.k,
+         { cast: false, pool: true, ao: 0.50, aoY: c.y });
+  }
+
+  for (const p of SHINPAN) {
+    push(MESH.sphereLo, M4.trs(p.x, 0.30, p.z, 0, p.ry, 0, 0.66, 0.66, 0.56),
+         MAT.woodDark, { ao: 0.55, aoY: 0 });
+    push(MESH.sphereLo, M4.trs(p.x, 0.74, p.z, 0, p.ry, 0, 0.27, 0.30, 0.27),
+         CROWD_SKIN[1], { cast: false });
+  }
+
+  /* Nobori — the sponsor banners. They live in the low band from z -7 to -10
+     because that is the only part of the far set the camera can still see. */
+  for (let i = -5; i <= 5; i++) {
+    const x = i * 1.75, z = -7.6 - (i % 2 ? 0.5 : 0);
+    push(MESH.box, M4.trs(x, 1.30, z, 0, 0, 0, 0.08, 2.60, 0.08), MAT.rail,
+         { cast: false });
+    push(MESH.quad, M4.trs(x, 1.42, z + 0.05, 0, 0, 0, 1.05, 2.00, 1),
+         i % 3 === 0 ? MAT.nobori : (i % 3 === 1 ? MAT.vermil : MAT.cushionB),
+         { cast: false, cull: "none" });
+  }
+
+  /* Overhead lighting. Solid ceiling geometry is impossible here — a fighter at
+     the back edge is seen along a sightline that passes y≈8.3 at z=+2, and the
+     top of frame there is only y≈10.1. Narrow fixtures slip into that gap. */
+  for (let i = -3; i <= 3; i++) {
+    const x = i * 3.1, z = 2.6, y = 10.0;
+    push(MESH.box, M4.trs(x, y, z, 0, 0, 0, 1.5, 0.16, 0.9), MAT.rail,
+         { cast: false, recv: false });
+    push(MESH.box, M4.trs(x, y - 0.16, z, 0, 0, 0, 1.25, 0.10, 0.72), MAT.rig,
+         { cast: false, recv: false });
+  }
+  // the truss they hang from, running across the top of frame
+  push(MESH.box, M4.trs(0, 10.32, 2.6, 0, 0, 0, 21.0, 0.20, 0.34), MAT.rail,
+       { cast: false, recv: false });
 }
 
 /* ═══════════════════ VENUE 4 — BAMBOO GROVE (竹林) ═══════════════════ */
 
-const BAMBOO = Array.from({ length: 30 }, (_, i) => {
-  const a = (i / 30) * 6.2832 + (scatter() - 0.5) * 0.20;
-  const r = 8.3 + scatter() * 4.4;
+/* The camera sits at roughly (0, 15.5, 9.9), so the FRONT arc of any ring of
+   props at r>8 is level with or inside the lens. Anything placed there fills the
+   screen — a first pass put bamboo and foliage right around the circle and the
+   near clumps buried the whole ring in green. Everything tall in this venue is
+   filtered against that exclusion zone, with margin for the camera's drift. */
+const CAM_XZ = [0, 9.93];
+const nearCam = (x, z) => Math.hypot(x - CAM_XZ[0], z - CAM_XZ[1]) < 8.5;
+
+const BAMBOO = Array.from({ length: 64 }, (_, i) => {
+  const a = (i / 64) * 6.2832 + (scatter() - 0.5) * 0.22;
+  const r = 7.9 + scatter() * 5.2;
   return { x: Math.cos(a) * r, z: Math.sin(a) * r,
-           h: 9 + scatter() * 5.5, rad: 0.21 + scatter() * 0.12,
-           lx: (scatter() - 0.5) * 0.11, lz: (scatter() - 0.5) * 0.11,
+           h: 9 + scatter() * 6.0, rad: 0.19 + scatter() * 0.13,
+           lx: (scatter() - 0.5) * 0.13, lz: (scatter() - 0.5) * 0.13,
            m: (scatter() * 3) | 0 };
-});
+}).filter(b => !nearCam(b.x, b.z));
 
-const LITTER = Array.from({ length: 42 }, () => {
-  const a = scatter() * 6.2832, r = 4.9 + scatter() * 7.4;
-  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
-           ry: scatter() * 3.14, s: 0.15 + scatter() * 0.17 };
-});
+/* Foliage. Bamboo without leaves reads as drinking straws, and the canopy is
+   also the only thing that can occupy the top of frame — but only near the
+   camera, since the visible envelope collapses with depth. So clumps are biased
+   to z > -3 and allowed to climb to y≈11 there, staying low further back. */
+/* Foliage is built as individual blades, not clumps. Bamboo leaves are long thin
+   lances, and this camera looks down on them — a squashed sphere from above is
+   just an ellipse, which is why the first two passes read as green pebbles
+   floating in the air. Each spray hangs off a culm and fans out four to six
+   blades. Heights are capped by the frame ceiling at that depth so nothing is
+   sliced off at the top. */
+const BLADES = (() => {
+  const out = [];
+  for (const b of BAMBOO) {
+    const headroom = 8.8 + b.z * 0.68;
+    if (headroom < 2.8) continue;
+    const top = Math.min(headroom - 0.6, b.h * 0.95);
+    const sprays = 2 + ((scatter() * 3) | 0);
+    for (let sp = 0; sp < sprays; sp++) {
+      const y0 = b.h * (0.45 + (sp / sprays) * 0.5 + scatter() * 0.08);
+      if (y0 < 2.2 || y0 > top) continue;
+      const side = scatter() * 6.2832;
+      const n = 4 + ((scatter() * 3) | 0);
+      for (let k = 0; k < n; k++) {
+        const a = side + (k / n) * 2.6 + (scatter() - 0.5) * 0.4;
+        const len = 0.85 + scatter() * 0.75;
+        const droop = -0.45 - scatter() * 0.55;          // blades hang outward
+        out.push({
+          x: b.x + Math.cos(a) * (0.22 + len * 0.42),
+          y: y0 + (scatter() - 0.5) * 0.42,
+          z: b.z + Math.sin(a) * (0.22 + len * 0.42),
+          rx: droop, ry: -a + Math.PI / 2, len,
+          w: 0.075 + scatter() * 0.055,
+          dk: scatter() > 0.45 });
+      }
+    }
+  }
+  return out;
+})();
 
-// darker moss clumps, so the forest floor isn't a flat wash
-const MOSS = Array.from({ length: 26 }, () => {
-  const a = scatter() * 6.2832, r = 4.7 + scatter() * 8.0;
+const LITTER = Array.from({ length: 60 }, () => {
+  const a = scatter() * 6.2832, r = 4.9 + scatter() * 7.6;
   return { x: Math.cos(a) * r, z: Math.sin(a) * r,
-           ry: scatter() * 3.14, s: 1.1 + scatter() * 1.6 };
+           ry: scatter() * 3.14, s: 0.11 + scatter() * 0.13 };
 });
 
 function grove() {
   push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.moss,
        { cast: false, pool: true });
 
+  // Culms cast now that the shadow map reaches r≈15, which is what puts dappled
+  // light on the moss — the single biggest change in this venue.
   for (const b of BAMBOO) {
     const m = b.m === 0 ? MAT.culmA : b.m === 1 ? MAT.culmB : MAT.culmC;
     push(MESH.cyl, M4.trs(b.x, b.h / 2, b.z, b.lx, 0, b.lz, b.rad, b.h, b.rad), m,
-         { cast: false });
+         { grid: 6, ao: 0.35, aoY: 0 });
   }
-  for (const m of MOSS)
-    push(MESH.disc, M4.trs(m.x, 0.008, m.z, 0, m.ry, 0, m.s, 1, m.s * 0.75),
-         MAT.mossDk, { cast: false, pool: true });
+  for (const f of BLADES)
+    push(MESH.quad, M4.trs(f.x, f.y, f.z, f.rx, f.ry, 0, f.w, f.len, 1),
+         f.dk ? MAT.leafDk : MAT.leaf, { cull: "none", cast: false });
+
+  // No darker moss patches any more: as flat discs they read as oil stains, and
+  // the procedural mottling on MAT.moss now breaks the floor up on its own.
   for (const l of LITTER)
-    push(MESH.box, M4.trs(l.x, 0.014, l.z, 0, l.ry, 0, l.s, 0.018, l.s * 0.6),
+    push(MESH.box, M4.trs(l.x, 0.014, l.z, 0, l.ry, 0, l.s, 0.014, l.s * 0.6),
          MAT.litter, { cast: false });
 
   // stepping stones leading away from the ring
@@ -2161,15 +2564,17 @@ function grove() {
     const t = i / 6;
     const x = lerp(-2.6, -7.8, t) + Math.sin(t * 4.2) * 0.42;
     const z = lerp(6.8, 2.4, t);
-    push(MESH.box, M4.trs(x, 0.022, z, 0, 0.35 + t, 0, 1.15, 0.05, 0.88),
-         MAT.flagst, { cast: false });
+    push(MESH.box, M4.trs(x, 0.05, z, 0, 0.35 + t, 0, 1.15, 0.11, 0.88),
+         MAT.flagst, { ao: 0.35, aoY: 0, grid: 7 });
   }
 
   // tsukubai — stone water basin with a bamboo spout
-  push(MESH.cyl, M4.trs(7.1, 0.24, 3.1, 0, 0, 0, 1.15, 0.48, 1.15), MAT.stone);
+  push(MESH.cyl, M4.trs(7.1, 0.24, 3.1, 0, 0, 0, 1.15, 0.48, 1.15), MAT.stone,
+       { ao: 0.5, aoY: 0, grid: 7 });
   push(MESH.cyl, M4.trs(7.1, 0.475, 3.1, 0, 0, 0, 0.90, 0.05, 0.90), MAT.water,
        { cast: false });
-  push(MESH.box, M4.trs(8.05, 0.64, 3.6, 0, -0.6, 0.55, 0.10, 0.10, 1.55), MAT.bamboo);
+  push(MESH.box, M4.trs(8.05, 0.64, 3.6, 0, -0.6, 0.55, 0.10, 0.10, 1.55),
+       MAT.bamboo, { grid: 6 });
 }
 
 /* ═════════════════════════════ VENUE ROTATION ═════════════════════════════ */
@@ -2191,18 +2596,18 @@ const MAPS = [
     sound: { bed: "shrine", crowd: 0.10,
       scuff: { f: 2700, q: 0.7, type: "bandpass", dur: 0.11, gain: 0.130 } },
     light: {
-      key: [0.46, 0.55, 0.84], fill: [0.09, 0.12, 0.26], back: [0.18, 0.22, 0.44],
-      sky: [0.09, 0.12, 0.24], gnd: [0.018, 0.020, 0.032], fog: [0.008, 0.012, 0.028],
-      fogRange: [18, 36], pool: [3.0, 12.5, 0.44], exposure: 0.98, bloom: 1.10 } },
+      key: [0.54, 0.62, 0.88], fill: [0.13, 0.16, 0.30], back: [0.22, 0.26, 0.48],
+      sky: [0.12, 0.15, 0.27], gnd: [0.030, 0.028, 0.030], fog: [0.012, 0.016, 0.032],
+      fogRange: [18, 36], pool: [3.4, 13.5, 0.38], exposure: 1.04, bloom: 0.92 } },
 
   { name: "GRAND ARENA", kanji: "国技館", build: arena,
     surf: "GRIPPED CLAY", fric: 0.9495,
     sound: { bed: "arena", crowd: 1.00,
       scuff: { f: 950, q: 0.6, type: "lowpass", dur: 0.065, gain: 0.105 } },
     light: {
-      key: [1.34, 1.30, 1.24], fill: [0.15, 0.16, 0.22], back: [0.22, 0.24, 0.32],
-      sky: [0.13, 0.14, 0.17], gnd: [0.018, 0.018, 0.024], fog: [0.010, 0.010, 0.014],
-      fogRange: [18, 38], pool: [6.4, 10.8, 0.87], exposure: 1.02, bloom: 0.52 } },
+      key: [1.16, 1.12, 1.05], fill: [0.22, 0.23, 0.29], back: [0.30, 0.31, 0.39],
+      sky: [0.18, 0.19, 0.23], gnd: [0.026, 0.026, 0.033], fog: [0.014, 0.014, 0.019],
+      fogRange: [20, 40], pool: [7.4, 16.5, 0.62], exposure: 0.96, bloom: 0.52 } },
 
   // Mist has to start beyond the ring: the dohyo sits 15–20u from the camera, so
   // fog any closer than that washes out the gameplay area itself.
@@ -2211,9 +2616,9 @@ const MAPS = [
     sound: { bed: "grove", crowd: 0.00,
       scuff: { f: 620, q: 0.8, type: "lowpass", dur: 0.055, gain: 0.100 } },
     light: {
-      key: [0.96, 1.02, 0.88], fill: [0.26, 0.33, 0.32], back: [0.38, 0.46, 0.42],
-      sky: [0.28, 0.33, 0.30], gnd: [0.070, 0.078, 0.062], fog: [0.30, 0.35, 0.31],
-      fogRange: [19, 34], pool: [4.0, 14.0, 0.34], exposure: 1.06, bloom: 0.60 } },
+      key: [0.86, 0.94, 0.78], fill: [0.17, 0.23, 0.22], back: [0.26, 0.33, 0.30],
+      sky: [0.19, 0.24, 0.22], gnd: [0.042, 0.048, 0.038], fog: [0.21, 0.26, 0.23],
+      fogRange: [16, 26], pool: [4.0, 15.0, 0.44], exposure: 1.00, bloom: 0.66 } },
 ];
 
 // The key light DIRECTION never changes between venues, so the shadow map and
@@ -2505,6 +2910,7 @@ function drawParticles(proj, view) {
 }
 
 const nrmTmp = new Float32Array(9);
+const aoTmp = new Float32Array(2);
 
 function drawScene(proj, view, eye) {
   const P = PROG;
@@ -2526,13 +2932,19 @@ function drawScene(proj, view, eye) {
 
   let curCull = gl.BACK, blending = false, curBlend = null;
   gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+  // cull:"none" means genuinely two-sided (foliage cards, hanging cloth), which
+  // needs CULL_FACE disabled — cullFace(NONE) is not a legal enum.
 
   // opaque first, then additive/transparent
   const opaque = [], trans = [];
   for (const d of drawList) (d.blend ? trans : opaque).push(d);
 
   const emit = d => {
-    if (d.cull !== curCull) { gl.cullFace(d.cull); curCull = d.cull; }
+    if (d.cull !== curCull) {
+      if (d.cull === "none") gl.disable(gl.CULL_FACE);
+      else { if (curCull === "none") gl.enable(gl.CULL_FACE); gl.cullFace(d.cull); }
+      curCull = d.cull;
+    }
     if (d.blend && !blending) {
       gl.enable(gl.BLEND); gl.depthMask(false); blending = true;
     }
@@ -2554,6 +2966,9 @@ function drawScene(proj, view, eye) {
     gl.uniform1f(P.u.uGrid, d.grid);
     gl.uniform1f(P.u.uRecv, d.recv ? 1 : 0);
     gl.uniform1f(P.u.uFog, mat.fog === undefined ? 1 : mat.fog);
+    gl.uniform4fv(P.u.uDet, mat.det || NO_DET);
+    aoTmp[0] = d.ao; aoTmp[1] = d.aoY;
+    gl.uniform2fv(P.u.uAo, aoTmp);
     gl.bindVertexArray(d.mesh.vao);
     gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
   };
@@ -2562,6 +2977,7 @@ function drawScene(proj, view, eye) {
   for (const d of trans) emit(d);
 
   if (blending) { gl.disable(gl.BLEND); gl.depthMask(true); }
+  if (curCull === "none") gl.enable(gl.CULL_FACE);
   gl.cullFace(gl.BACK);
   gl.bindVertexArray(null);
 }
@@ -2719,7 +3135,8 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                camera, drawList, showMenu, beginMatch, MAPS, ENV, applyMap,
                MENU, AI, AI_TIERS, CHARS, SURF, renderMenu, menuMove, menuChange,
                SND, sndInit, sndHit, sndTaiko, sndClack, sndFall, sndLand, sndCrowd,
-               sndScuff, sndVenue, sndToggle, sndShove, sndDuck, BEDS };
+               sndScuff, sndVenue, sndToggle, sndShove, sndDuck, BEDS,
+               render, gl, MESH, push, ENV, lightVP };
 </script>
 </body>
 </html>
