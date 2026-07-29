@@ -86,6 +86,15 @@
   #foot{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
     font-size:11px;font-weight:700;letter-spacing:.2em;color:rgba(255,255,255,.28);
     white-space:nowrap}
+  /* mute toast — sits above the footer, fades itself out */
+  #sndTag{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);
+    font-size:10px;font-weight:800;letter-spacing:.28em;color:rgba(217,184,119,.9);
+    opacity:0;pointer-events:none}
+  #sndTag.show{animation:sndFade 1.5s ease forwards}
+  @keyframes sndFade{0%{opacity:0;transform:translate(-50%,6px)}
+    14%{opacity:1;transform:translateX(-50%)}
+    70%{opacity:1;transform:translateX(-50%)}
+    100%{opacity:0;transform:translateX(-50%)}}
   /* ---------- main menu ---------- */
   /* top and bottom bands, so the two fighters stay framed in the middle */
   #menu{position:absolute;inset:0;display:flex;flex-direction:column;
@@ -193,7 +202,7 @@
       <div id="bHint"></div>
     </div>
 
-    <div id="foot">HOLD TO SLIDE · MOMENTUM IS EVERYTHING · <span style="color:rgba(255,255,255,.5)">SPACE</span> NEXT ROUND · <span style="color:rgba(255,255,255,.5)">P</span> PAUSE · <span style="color:rgba(255,255,255,.5)">R</span> RESTART</div>
+    <div id="foot">HOLD TO SLIDE · MOMENTUM IS EVERYTHING · <span style="color:rgba(255,255,255,.5)">SPACE</span> NEXT ROUND · <span style="color:rgba(255,255,255,.5)">P</span> PAUSE · <span style="color:rgba(255,255,255,.5)">M</span> MUTE · <span style="color:rgba(255,255,255,.5)">R</span> RESTART</div>
     <div id="menu">
       <div class="mTop">
         <div id="mKanji">相撲</div>
@@ -203,11 +212,12 @@
       <div class="mBot">
         <div id="mRows"></div>
         <div id="mStart"><span>PRESS SPACE TO BEGIN</span></div>
-        <div id="mFoot">↑↓ SELECT · ←→ CHANGE · BLUE W A S D · RED ↑ ← ↓ → · P PAUSE · ESC MENU</div>
+        <div id="mFoot">↑↓ SELECT · ←→ CHANGE · BLUE W A S D · RED ↑ ← ↓ → · P PAUSE · M MUTE · ESC MENU</div>
       </div>
     </div>
 
     <div id="paused">PAUSED</div>
+    <div id="sndTag">♪ SOUND ON</div>
   </div>
   <div id="err"></div>
 </div>
@@ -910,6 +920,7 @@ const G = {
   state: "countdown", stateT: 0, cd: 0, round: 1,
   radius: CFG.R0, roundT: 0, freeze: 0, pending: [],
   shake: 0, flash: 0, time: 0, winner: null, paused: false, hitCool: 0, map: 0,
+  lastHitK: 1,                                  // feeds the shove on hitstop release
   camTarget: [0, 0], camShake: [0, 0, 0],
 };
 
@@ -924,7 +935,7 @@ function makeFighter(i) {
     score: 0,
     yaw: 0, tumble: 0, tumbleAxis: [1, 0, 0], spin: 0,
     lean: 0, leanX: 0, leanZ: 0,
-    step: 0, bob: 0, squash: 0, thrust: 0, hitFlash: 0,
+    step: 0, bob: 0, squash: 0, thrust: 0, hitFlash: 0, scuffT: 0,
     ghosts: [],
   };
 }
@@ -939,7 +950,11 @@ const BLOCKED = new Set(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"]
 
 window.addEventListener("keydown", e => {
   if (BLOCKED.has(e.code)) e.preventDefault();
+  // browsers won't let audio start before a gesture, so the first key unlocks it
+  sndInit();
+  if (SND.ctx && SND.ctx.state === "suspended") SND.ctx.resume();
   if (!e.repeat) {
+    if (e.code === "KeyM") sndToggle();
     if (G.state === "menu") {
       // either player can drive the menu; R and P stay inert so they can't skip it
       if (e.code === "Space" || e.code === "Enter") beginMatch();
@@ -1016,6 +1031,272 @@ function dust(x, y, z, n, power, tint) {
 }
 
 function shock(x, y, z, maxR, col, w) { rings.push({ x, y, z, r: 0.35, maxR, life: 1, col, w }); }
+
+/* ═════════════════════════════ SOUND ═════════════════════════════ */
+/* Every sound here is synthesised at runtime — no audio files, so the game stays
+   one self-contained document, same call we made for the renderer. The win is
+   that impacts read straight off the physics: the `impact` speed that already
+   drives hitstop and screen shake also sets a hit's pitch, weight and decay. A
+   nudge and a full-speed clash are one voice at two ends of a continuum instead
+   of two canned samples. */
+
+const SND = {
+  ctx: null, master: null, on: true, ready: false,
+  fx: null,          // impacts, drums, clappers — never ducked
+  amb: null,         // ambience, crowd, footwork — ducked through a hitstop
+  crowd: null, crowdBase: 0,
+  noise: null,       // one shared noise buffer, reused by every noise voice
+  beds: [], bedMap: -1,
+};
+
+/* Sound-only RNG. Audio variation must never draw from Math.random, or it would
+   perturb the AI's jitter stream and make a tuning run unrepeatable. */
+let sndSeed = 0x2545f491;
+function srand() {
+  sndSeed ^= sndSeed << 13; sndSeed ^= sndSeed >>> 17; sndSeed ^= sndSeed << 5;
+  return ((sndSeed >>> 0) % 100000) / 100000;
+}
+
+function sndInit() {
+  if (SND.ctx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  const ctx = SND.ctx = new AC();
+
+  // buses → compressor → master → out. The compressor is what stops a ring-out
+  // landing on top of a crowd swell from clipping.
+  const master = ctx.createGain(); master.gain.value = 0.85;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.knee.value = 22; comp.ratio.value = 3.4;
+  comp.attack.value = 0.004; comp.release.value = 0.20;
+  comp.connect(master); master.connect(ctx.destination);
+  SND.master = master;
+  SND.fx  = ctx.createGain(); SND.fx.connect(comp);
+  SND.amb = ctx.createGain(); SND.amb.connect(comp);
+
+  const n = ctx.sampleRate * 2;                 // 2 s of white noise, shared
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  SND.noise = buf;
+
+  SND.ready = true;
+  sndVenue(G.map, true);
+}
+const sndNow = () => SND.ctx.currentTime;
+
+/* Filtered noise burst — the workhorse behind slaps, scuffs, whooshes and
+   clappers. Sweeping the filter with `f1` is what turns a burst into a whoosh. */
+function nz(o) {
+  if (!SND.ready || !SND.on) return;
+  const ctx = SND.ctx, t = sndNow() + (o.at || 0), dur = o.dur;
+  const src = ctx.createBufferSource();
+  src.buffer = SND.noise; src.loop = true;
+  src.playbackRate.value = o.rate || 1;
+  const flt = ctx.createBiquadFilter();
+  flt.type = o.type || "bandpass";
+  flt.frequency.setValueAtTime(Math.max(40, o.f), t);
+  if (o.f1) flt.frequency.exponentialRampToValueAtTime(Math.max(40, o.f1), t + dur);
+  flt.Q.value = o.q === undefined ? 1 : o.q;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(1e-4, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(2e-4, o.gain), t + (o.atk || 0.004));
+  g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+  src.connect(flt); flt.connect(g); g.connect(o.bus || SND.fx);
+  src.start(t, srand() * 1.5); src.stop(t + dur + 0.03);
+}
+
+/* Pitched body with an exponential pitch drop. Most of a sumo hit is this — the
+   low "oof" of weight under the slap. */
+function tn(o) {
+  if (!SND.ready || !SND.on) return;
+  const ctx = SND.ctx, t = sndNow() + (o.at || 0), dur = o.dur;
+  const osc = ctx.createOscillator();
+  osc.type = o.type || "sine";
+  osc.frequency.setValueAtTime(Math.max(20, o.f), t);
+  if (o.f1) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.f1), t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(1e-4, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(2e-4, o.gain), t + (o.atk || 0.005));
+  g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+  osc.connect(g); g.connect(o.bus || SND.fx);
+  osc.start(t); osc.stop(t + dur + 0.03);
+}
+
+/* ── the hits ──
+   k is impact speed over the hard-hit threshold: ~0.3 for a shove, 1 for a real
+   clash, 2+ for a full-speed collision. Heavier hits go lower and longer, which
+   is what makes the weight difference between Iwa and Tsubame audible. */
+function sndHit(k, hard) {
+  const K = clamp(k, 0.12, 2.6);
+  // sub-linear so a nudge is genuinely quiet and a max-speed clash is ~8x it,
+  // without the loudest hits running into the ceiling
+  const A = Math.pow(K, 0.75);
+  const lo = 1 / (1 + K * 0.42);
+  nz({ f: 1500 * lo, f1: 420 * lo, q: 0.9, dur: 0.075 + K * 0.03,
+       gain: 0.34 * A });                                         // flesh slap
+  tn({ f: 148 * lo, f1: 46, dur: 0.13 + K * 0.07, gain: 0.30 * A });  // weight
+  if (hard) {
+    nz({ f: 3200, f1: 1400, q: 1.6, dur: 0.03, gain: 0.40 * A, atk: 0.001 });
+    tn({ f: 78, f1: 34, dur: 0.26, gain: 0.22, type: "triangle" });
+    sndCrowd(0.5 + K * 0.25, 0.9);
+  }
+}
+
+/* The freeze is the whole trick. Dropping the world to near-silence for the four
+   held frames and bringing it back on release is what makes a hitstop read as
+   impact rather than as a dropped frame. */
+function sndDuck(depth, dur) {
+  if (!SND.ready) return;
+  const g = SND.amb.gain, t = sndNow();
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(g.value, t);
+  g.linearRampToValueAtTime(depth, t + 0.012);
+  g.setValueAtTime(depth, t + dur);
+  g.linearRampToValueAtTime(1, t + dur + 0.13);
+}
+
+// bodies separating as the held knockback finally lands
+function sndShove(k) {
+  const K = clamp(k, 0.2, 2.6);
+  nz({ f: 760, f1: 190, q: 0.7, type: "lowpass", dur: 0.15, gain: 0.09 + K * 0.04 });
+  tn({ f: 112, f1: 40, dur: 0.19, gain: 0.12 + K * 0.05 });
+}
+
+/* Losing the ring is how every round ends, so it gets the biggest gesture in the
+   game: a whoosh whose filter falls away under you, and a low drop beneath it. */
+function sndFall() {
+  nz({ f: 1900, f1: 200, q: 0.5, dur: 0.60, gain: 0.60, atk: 0.06 });
+  tn({ f: 320, f1: 62, dur: 0.55, gain: 0.17, type: "triangle" });
+  tn({ f: 120, f1: 40, dur: 0.40, gain: 0.12, at: 0.18 });
+  sndCrowd(1.0, 1.5);
+}
+
+function sndLand(v) {
+  const K = clamp(v / 0.09, 0.2, 1.6);
+  nz({ f: 520, f1: 150, q: 0.5, type: "lowpass", dur: 0.10 + K * 0.05, gain: 0.22 * K });
+  tn({ f: 96, f1: 38, dur: 0.20, gain: 0.19 * K });
+}
+
+/* A taiko is close enough to a fast pitch drop on a sine plus a stick transient
+   — the drum body, and the stick striking the skin. */
+function sndTaiko(pitch, gain, at) {
+  const p = pitch || 1, g = gain === undefined ? 1 : gain, a = at || 0;
+  tn({ f: 186 * p, f1: 52 * p, dur: 0.40, gain: 0.29 * g, atk: 0.003, at: a });
+  tn({ f: 372 * p, f1: 120 * p, dur: 0.14, gain: 0.09 * g, type: "triangle", at: a });
+  nz({ f: 1300, f1: 500, q: 1.1, dur: 0.05, gain: 0.12 * g, atk: 0.001, at: a });
+}
+
+/* Hyoshigi — the wooden clappers from the ring. Three inharmonic resonances
+   ringing down fast, plus the broadband click of the strike. Filtered noise was
+   the obvious way to build this and it was wrong: a high-Q bandpass passes so
+   little of the noise energy that the result measured barely above the ambience.
+   Struck resonators give a predictable amplitude, and the inharmonic ratios
+   (1 : 1.57 : 0.60) are what keep it wood rather than a beep. */
+function sndClack(pitch, gain, at) {
+  const p = pitch || 1, g = gain === undefined ? 1 : gain, a = at || 0;
+  // held below a body clash on purpose — a clapper marks the moment, it isn't it
+  tn({ f: 2150 * p, dur: 0.055, gain: 0.165 * g, atk: 0.0012, at: a });
+  tn({ f: 3380 * p, dur: 0.038, gain: 0.095 * g, atk: 0.0010, at: a });
+  tn({ f: 1290 * p, dur: 0.070, gain: 0.072 * g, atk: 0.0015, at: a });
+  nz({ f: 2600 * p, q: 0.8, dur: 0.014, gain: 0.165 * g, atk: 0.0008, at: a });
+}
+
+/* Footwork, voiced by the surface underfoot. Grains fire faster the quicker you
+   move, so a plod reads as separate steps and a full-speed slide smears into a
+   skid — and the venue friction you could only feel is now audible. */
+function sndScuff(sp) {
+  if (!SND.ready || !SND.on) return;
+  const s = MAPS[G.map].sound.scuff;
+  const k = clamp((sp - 0.018) / 0.16, 0, 1);
+  if (k <= 0) return;
+  nz({ f: s.f * (0.85 + srand() * 0.3), f1: s.f1 ? s.f1 * (0.9 + srand() * 0.2) : 0,
+       q: s.q, type: s.type, dur: s.dur * (0.8 + srand() * 0.5),
+       gain: s.gain * (0.45 + k) * (0.7 + srand() * 0.6), bus: SND.amb });
+}
+
+/* A bed is a looping noise voice with slow modulation on its gain — one
+   primitive covers room tone, crowd murmur, wind and insects. The LFO sums into
+   the gain param on top of the scheduled ramp, so it keeps breathing. */
+function bed(o) {
+  const ctx = SND.ctx, t = sndNow();
+  const src = ctx.createBufferSource();
+  src.buffer = SND.noise; src.loop = true;
+  src.playbackRate.value = o.rate || 1;
+  const flt = ctx.createBiquadFilter();
+  flt.type = o.type || "bandpass";
+  flt.frequency.value = o.f; flt.Q.value = o.q === undefined ? 0.8 : o.q;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(1e-4, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(2e-4, o.gain), t + 1.4);
+  const lfo = ctx.createOscillator(), lg = ctx.createGain();
+  lfo.frequency.value = o.lfo || 0.08;
+  lg.gain.value = o.gain * (o.depth === undefined ? 0.5 : o.depth);
+  lfo.connect(lg); lg.connect(g.gain); lfo.start(t);
+  src.connect(flt); flt.connect(g); g.connect(o.bus || SND.amb);
+  src.start(t, srand() * 1.5);
+  SND.beds.push({ src, lfo, g });
+  return g;
+}
+
+const BEDS = {
+  dojo:   [{ f:  190, q: 0.6, gain: 0.030, type: "lowpass", lfo: 0.06, depth: 0.40 },
+           { f: 1100, q: 0.5, gain: 0.006,                  lfo: 0.11, depth: 0.60 }],
+  // high resonant chirps at a few Hz land close enough to night insects
+  shrine: [{ f:  150, q: 0.5, gain: 0.024, type: "lowpass", lfo: 0.05, depth: 0.50 },
+           { f: 4600, q: 5.0, gain: 0.009,                  lfo: 3.10, depth: 0.95 }],
+  arena:  [{ f:  260, q: 0.5, gain: 0.016, type: "lowpass", lfo: 0.08, depth: 0.40 }],
+  grove:  [{ f: 1750, q: 0.5, gain: 0.026,                  lfo: 0.13, depth: 0.70 },
+           { f:  260, q: 0.6, gain: 0.016, type: "lowpass", lfo: 0.07, depth: 0.50 }],
+};
+
+function sndVenue(i, force) {
+  if (!SND.ready) return;
+  if (!force && i === SND.bedMap) return;
+  SND.bedMap = i;
+  const t = sndNow();
+  for (const b of SND.beds) {                   // cross-fade out the old venue
+    b.g.gain.cancelScheduledValues(t);
+    b.g.gain.setValueAtTime(Math.max(2e-4, b.g.gain.value), t);
+    b.g.gain.exponentialRampToValueAtTime(1e-4, t + 0.5);
+    b.src.stop(t + 0.6); b.lfo.stop(t + 0.6);
+  }
+  SND.beds.length = 0;
+  const S = MAPS[i].sound;
+  for (const o of BEDS[S.bed]) bed(o);
+  // the crowd is its own voice so reactions can swell it
+  SND.crowdBase = S.crowd * 0.055;
+  SND.crowd = bed({ f: 460, q: 0.4, gain: Math.max(2e-4, SND.crowdBase),
+                    lfo: 0.14, depth: 0.45 });
+}
+
+/* How loud a reaction lands is a venue property: the arena erupts, a training
+   hall barely mutters, and nobody at all is watching in the bamboo grove. */
+function sndCrowd(amount, dur) {
+  if (!SND.ready || !SND.on || !SND.crowd) return;
+  const w = MAPS[G.map].sound.crowd;
+  if (w <= 0.001) return;
+  const a = amount * w, g = SND.crowd.gain, t = sndNow();
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(Math.max(2e-4, g.value), t);
+  g.exponentialRampToValueAtTime(Math.max(2e-4, SND.crowdBase + a * 0.17), t + 0.09);
+  g.exponentialRampToValueAtTime(Math.max(2e-4, SND.crowdBase), t + 0.09 + dur);
+  nz({ f: 900, f1: 1500, q: 0.4, dur: dur * 0.8, gain: a * 0.085,
+       atk: dur * 0.2, bus: SND.amb });
+}
+
+function sndToggle() {
+  SND.on = !SND.on;
+  if (SND.ready) {
+    const g = SND.master.gain, t = sndNow();
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(SND.on ? 0.85 : 0.0001, t + 0.12);
+  }
+  const el = document.getElementById("sndTag");
+  el.textContent = SND.on ? "♪ SOUND ON" : "♪ MUTED";
+  el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+}
 
 /* ═════════════════════════════ ROUND FLOW ═════════════════════════════ */
 
@@ -1115,11 +1396,13 @@ function renderMenu() {
 function menuMove(d) {
   const n = menuRows().length;
   MENU.row = (MENU.row + d + n) % n;
+  sndClack(1.45, 0.34);
   renderMenu();
 }
 function menuChange(d) {
   const r = menuRows()[MENU.row];
   r.set(r.get() + d);
+  sndClack(1.15, 0.48);
   applyChars();                    // preview the bodies behind the menu
   renderMenu();
 }
@@ -1154,6 +1437,7 @@ function showMenu() {
 }
 
 function beginMatch() {
+  sndClack(0.85, 1.0); sndClack(0.85, 0.9, 0.10);   // the ring is called
   HUD.menu.classList.remove("on");
   HUD.hud.classList.remove("menu");
   newMatch();
@@ -1187,7 +1471,7 @@ function startRound() {
     f.alive = true; f.falling = false; f.landed = false; f.fallT = 0;
     f.yaw = side < 0 ? -Math.PI / 2 : Math.PI / 2;   // squared up on the tachi-ai
     f.tumble = 0; f.spin = 0; f.lean = 0; f.leanX = 0; f.leanZ = 0;
-    f.step = 0; f.bob = 0; f.squash = 0; f.thrust = 0; f.hitFlash = 0;
+    f.step = 0; f.bob = 0; f.squash = 0; f.thrust = 0; f.hitFlash = 0; f.scuffT = 0;
     f.ghosts.length = 0;
   }
   HUD.banner.classList.remove("on");
@@ -1206,6 +1490,11 @@ function endRound(winner) {
   if (matchOver) {
     G.state = "matchEnd"; G.stateT = 75; G.winner = winner;
     G.shake = Math.max(G.shake, 0.20); G.flash = 0.35;
+    sndTaiko(0.80, 1.30, 0.00);          // three-beat flourish
+    sndTaiko(0.92, 1.00, 0.17);
+    sndTaiko(0.68, 1.45, 0.34);
+    sndClack(0.95, 1.0, 0.34);
+    sndCrowd(1.6, 2.6);
     HUD.bTitle.textContent = winner.team.name + " TAKES THE BOUT";
     HUD.bTitle.style.color = winner.team.hud;
     HUD.bSub.textContent = CFG.roundsToWin + " ROUNDS WON";
@@ -1223,11 +1512,13 @@ function endRound(winner) {
       });
     }
   } else if (winner) {
+    sndClack(0.90, 1.1); sndTaiko(0.95, 0.80, 0.09);
     HUD.bTitle.textContent = winner.team.name + " WINS";
     HUD.bTitle.style.color = winner.team.hud;
     HUD.bSub.textContent = "ROUND " + (G.round - 1);
     HUD.bHint.innerHTML = 'PRESS <span class="kbd">SPACE</span> FOR THE NEXT ROUND';
   } else {
+    sndClack(0.80, 1.0); sndClack(0.72, 0.9, 0.11);
     HUD.bTitle.textContent = "DOUBLE KO";
     HUD.bTitle.style.color = "#ffdf8a";
     HUD.bSub.textContent = "NO POINT · ROUND " + (G.round - 1);
@@ -1261,6 +1552,11 @@ function drive(f) {
 
   const sp = Math.hypot(f.vx, f.vz);
   f.step += sp * 2.6 + 0.012;
+  // grains speed up with pace: a plod reads as steps, a hard slide as one skid
+  if (--f.scuffT <= 0) {
+    f.scuffT = clamp(Math.round(13 - sp * 48), 4, 26);
+    sndScuff(sp);
+  }
   if (sp > 0.052) {
     f.ghosts.push({ x: f.x, z: f.z, y: f.y, yaw: f.yaw, a: 1 });
     if (f.ghosts.length > 7) f.ghosts.shift();
@@ -1347,6 +1643,10 @@ function collide(a, b) {
     a.squash = b.squash = 1;
     a.thrust = b.thrust = 1;
     const k = impact / CFG.hardHit;
+    G.lastHitK = k;
+    // crack on contact, world drops out for the held frames
+    sndHit(k, true);
+    sndDuck(0.07, CFG.freezeFrames / 60);
     G.shake = Math.min(0.30, G.shake + 0.048 * k);
     G.flash = Math.min(0.085, 0.026 * k);
     burst(cx, cy, cz, 12 + Math.min(20, (k * 8) | 0), 0.075 * (1 + k * 0.5),
@@ -1360,6 +1660,7 @@ function collide(a, b) {
     if (impact > 0.024) {
       burst(cx, cy, cz, 6, 0.05, [[1,1,1], a.team.glow, b.team.glow], { size: 0.055, glow: 1.2 });
       G.shake = Math.min(0.42, G.shake + 0.012 * (impact / CFG.hardHit));
+      sndHit(impact / CFG.hardHit, false);
     }
   }
 }
@@ -1367,6 +1668,7 @@ function collide(a, b) {
 function releaseHitstop() {
   for (const q of G.pending) { q.f.vx += q.dvx; q.f.vz += q.dvz; }
   G.pending.length = 0;
+  sndShove(G.lastHitK);            // the shove lands as the world comes back
 }
 
 function startFall(f) {
@@ -1384,6 +1686,7 @@ function startFall(f) {
   burst(ex, CFG.deck + 0.5, ez, 22, 0.06, [[1,1,1], f.team.glow, [1,0.9,0.65]], { size: 0.07, glow: 1.6 });
   shock(ex, CFG.deck + 0.012, ez, 2.0, f.team.glow, 1);
   G.shake = Math.max(G.shake, 0.13);
+  sndFall();
 }
 
 function updateFall(f) {
@@ -1398,10 +1701,12 @@ function updateFall(f) {
       dust(f.x, 0.05, f.z, 16, 0.030);
       shock(f.x, 0.014, f.z, 1.6, [0.8, 0.78, 0.75], 1);
       G.shake = Math.max(G.shake, 0.08);
+      sndLand(Math.abs(f.vy));
       f.vy = -f.vy * CFG.bounce;
       f.spin *= 0.55;
       f.vx *= 0.7; f.vz *= 0.7;
     } else {
+      if (!f.landed) sndLand(0.022);        // settles onto the floor
       f.landed = true; f.vy = 0;
       f.vx *= 0.88; f.vz *= 0.88;
       f.spin *= 0.80;
@@ -1492,9 +1797,12 @@ function step() {
     const n = G.cd > 42 ? Math.ceil((G.cd - 42) / 60) : 0;
     if (n !== lastCd) {
       lastCd = n;
-      if (n > 0) showCount(String(n), false);
-      else {
+      if (n > 0) {
+        showCount(String(n), false);
+        sndTaiko(1 + (3 - n) * 0.07, 0.85);      // pitch rises 3 → 2 → 1
+      } else {
         showCount("GO!", true);
+        sndTaiko(0.82, 1.25); sndClack(1.0, 0.9); sndCrowd(0.7, 1.1);
         for (const f of F) dust(f.x, CFG.deck + 0.03, f.z, 10, 0.02);
       }
     }
@@ -1506,6 +1814,12 @@ function step() {
     for (const f of F) if (!f.falling) {          // survivor keeps coasting to a stop
       const fr = SURF.fric + f.fricAdj;
       f.vx *= fr; f.vz *= fr;
+      // this path skips drive(), so the slide needs its own footwork
+      if (--f.scuffT <= 0) {
+        const sp0 = Math.hypot(f.vx, f.vz);
+        f.scuffT = clamp(Math.round(13 - sp0 * 48), 4, 26);
+        sndScuff(sp0);
+      }
       const nx = f.x + f.vx, nz = f.z + f.vz;
       if (Math.hypot(nx, nz) < G.radius - f.hitR) { f.x = nx; f.z = nz; }
       else { f.vx *= 0.55; f.vz *= 0.55; }
@@ -1521,10 +1835,17 @@ function step() {
   }
 
   G.roundT++;
+  // one-shot as the ring starts to close: a low swell under the warning
+  if (G.roundT === CFG.shrinkDelay + 1) {
+    tn({ f: 62, f1: 116, dur: 1.5, gain: 0.16, atk: 0.7, type: "triangle" });
+    sndClack(0.7, 0.7);
+  }
   if (G.roundT > CFG.shrinkDelay) {
     const was = G.radius;
     G.radius = Math.max(CFG.minR, G.radius - CFG.shrinkRate);
     if (was > CFG.minR) HUD.warn.classList.add("on");
+    if (G.radius > CFG.minR && G.roundT % 53 === 0)     // clay groaning inward
+      tn({ f: 78 + srand() * 26, f1: 52, dur: 0.7, gain: 0.05, atk: 0.25, type: "triangle" });
     if (G.roundT % 7 === 0) {
       const a = Math.random() * 6.2832;
       dust(Math.cos(a) * G.radius, CFG.deck + 0.02, Math.sin(a) * G.radius, 1, 0.010);
@@ -1855,19 +2176,30 @@ function grove() {
 
 const MAPS = [
   { name: "KEIKO DOJO", kanji: "稽古場", build: dojo,
-    surf: "SWEPT BOARDS", fric: 0.9555, light: {
+    surf: "SWEPT BOARDS", fric: 0.9555,
+    // scuff voicing per surface: boards squeak, gravel crunches, clay scuffs
+    // dull, moss squishes. crowd is how many people are watching.
+    sound: { bed: "dojo", crowd: 0.20,
+      scuff: { f: 1750, f1: 900, q: 1.4, type: "bandpass", dur: 0.075, gain: 0.115 } },
+    light: {
       key: [1.02, 0.96, 0.85], fill: [0.24, 0.30, 0.46], back: [0.40, 0.42, 0.56],
       sky: [0.26, 0.29, 0.36], gnd: [0.055, 0.058, 0.070], fog: [0.040, 0.031, 0.024],
       fogRange: [24, 46], pool: [2.5, 13.0, 0.56], exposure: 1.14, bloom: 0.58 } },
 
   { name: "SHRINE GROUNDS", kanji: "奉納", build: shrine,
-    surf: "LOOSE GRAVEL", fric: 0.9605, light: {
+    surf: "LOOSE GRAVEL", fric: 0.9605,
+    sound: { bed: "shrine", crowd: 0.10,
+      scuff: { f: 2700, q: 0.7, type: "bandpass", dur: 0.11, gain: 0.130 } },
+    light: {
       key: [0.46, 0.55, 0.84], fill: [0.09, 0.12, 0.26], back: [0.18, 0.22, 0.44],
       sky: [0.09, 0.12, 0.24], gnd: [0.018, 0.020, 0.032], fog: [0.008, 0.012, 0.028],
       fogRange: [18, 36], pool: [3.0, 12.5, 0.44], exposure: 0.98, bloom: 1.10 } },
 
   { name: "GRAND ARENA", kanji: "国技館", build: arena,
-    surf: "GRIPPED CLAY", fric: 0.9495, light: {
+    surf: "GRIPPED CLAY", fric: 0.9495,
+    sound: { bed: "arena", crowd: 1.00,
+      scuff: { f: 950, q: 0.6, type: "lowpass", dur: 0.065, gain: 0.105 } },
+    light: {
       key: [1.34, 1.30, 1.24], fill: [0.15, 0.16, 0.22], back: [0.22, 0.24, 0.32],
       sky: [0.13, 0.14, 0.17], gnd: [0.018, 0.018, 0.024], fog: [0.010, 0.010, 0.014],
       fogRange: [18, 38], pool: [6.4, 10.8, 0.87], exposure: 1.02, bloom: 0.52 } },
@@ -1875,7 +2207,10 @@ const MAPS = [
   // Mist has to start beyond the ring: the dohyo sits 15–20u from the camera, so
   // fog any closer than that washes out the gameplay area itself.
   { name: "BAMBOO GROVE", kanji: "竹林", build: grove,
-    surf: "DAMP MOSS", fric: 0.9455, light: {
+    surf: "DAMP MOSS", fric: 0.9455,
+    sound: { bed: "grove", crowd: 0.00,
+      scuff: { f: 620, q: 0.8, type: "lowpass", dur: 0.055, gain: 0.100 } },
+    light: {
       key: [0.96, 1.02, 0.88], fill: [0.26, 0.33, 0.32], back: [0.38, 0.46, 0.42],
       sky: [0.28, 0.33, 0.30], gnd: [0.070, 0.078, 0.062], fog: [0.30, 0.35, 0.31],
       fogRange: [19, 34], pool: [4.0, 14.0, 0.34], exposure: 1.06, bloom: 0.60 } },
@@ -1888,6 +2223,7 @@ function applyMap(i) {
   const M = MAPS[G.map], L = M.light;
   for (const k in L) ENV[k] = L[k];
   SURF.fric = M.fric;              // each surface slides differently
+  sndVenue(G.map);                 // and sounds differently underfoot
   HUD.venue.textContent = M.kanji + " · " + M.name + " · " + M.surf;
 }
 
@@ -2381,7 +2717,9 @@ requestAnimationFrame(frame);
 // exposed for verification
 window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, endRound, HUD,
                camera, drawList, showMenu, beginMatch, MAPS, ENV, applyMap,
-               MENU, AI, AI_TIERS, CHARS, SURF, renderMenu, menuMove, menuChange };
+               MENU, AI, AI_TIERS, CHARS, SURF, renderMenu, menuMove, menuChange,
+               SND, sndInit, sndHit, sndTaiko, sndClack, sndFall, sndLand, sndCrowd,
+               sndScuff, sndVenue, sndToggle, sndShove, sndDuck, BEDS };
 </script>
 </body>
 </html>
