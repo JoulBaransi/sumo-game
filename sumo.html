@@ -86,6 +86,35 @@
   #foot{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
     font-size:11px;font-weight:700;letter-spacing:.2em;color:rgba(255,255,255,.28);
     white-space:nowrap}
+  /* ---------- gear + pause/settings overlay ---------- */
+  /* tucked just under the RED score board, which owns the very top-right corner */
+  #gear{position:absolute;top:132px;right:30px;
+    width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+    font-size:17px;color:rgba(255,255,255,.42);border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;cursor:pointer;pointer-events:auto;user-select:none;
+    background:rgba(10,7,5,.45);transition:color .15s,border-color .15s,background .15s}
+  #gear:hover{color:#f2e2bd;border-color:rgba(217,184,119,.6);background:rgba(20,14,9,.7)}
+  #overlay{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;opacity:0;pointer-events:none;transition:opacity .22s ease;
+    background:linear-gradient(rgba(6,4,3,.78),rgba(6,4,3,.9))}
+  #overlay.on{opacity:1;pointer-events:auto}
+  .oPanel{display:flex;flex-direction:column;align-items:center;
+    padding:30px 44px 26px;border-radius:14px;
+    background:linear-gradient(rgba(26,19,13,.86),rgba(12,9,6,.9));
+    border:1px solid rgba(217,184,119,.22);
+    box-shadow:0 26px 70px rgba(0,0,0,.6)}
+  .oKanji{font-size:13px;font-weight:800;letter-spacing:.6em;text-indent:.6em;
+    color:#d9b877}
+  .oTitle{margin-top:10px;font-size:38px;font-weight:800;letter-spacing:.14em;
+    background:linear-gradient(#fff9ee,#e0bf85);-webkit-background-clip:text;
+    background-clip:text;color:transparent}
+  .oList{display:flex;flex-direction:column;gap:3px;margin-top:22px}
+  .oRow.act{justify-content:center;min-width:330px}
+  .oRow.act .oLbl{width:auto;text-align:center;font-size:12px;letter-spacing:.26em;
+    color:rgba(255,255,255,.6)}
+  .oRow.act.sel .oLbl{color:#fff}
+  .oHint{margin-top:20px;font-size:9px;font-weight:700;letter-spacing:.2em;
+    color:rgba(255,255,255,.3)}
   /* mute toast — sits above the footer, fades itself out */
   #sndTag{position:absolute;bottom:46px;left:50%;transform:translateX(-50%);
     font-size:10px;font-weight:800;letter-spacing:.28em;color:rgba(217,184,119,.9);
@@ -151,10 +180,7 @@
   #hud.menu .board,#hud.menu #meta,#hud.menu #foot{opacity:0}
   .board,#meta,#foot{transition:opacity .35s ease}
 
-  #paused{position:absolute;left:50%;top:14%;transform:translateX(-50%);opacity:0;
-    font-size:12px;font-weight:800;letter-spacing:.34em;color:rgba(255,255,255,.75);
-    transition:opacity .2s}
-  #paused.on{opacity:1}
+
   #vig{position:absolute;inset:0;pointer-events:none;
     background:radial-gradient(130% 100% at 50% 45%,transparent 68%,rgba(0,0,0,.30) 100%)}
   #err{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#ff8a7a;
@@ -216,8 +242,19 @@
       </div>
     </div>
 
-    <div id="paused">PAUSED</div>
     <div id="sndTag">♪ SOUND ON</div>
+
+    <!-- settings is reachable from the gear at top right, or ESC in the menu -->
+    <div id="gear" title="Settings">⚙</div>
+
+    <div id="overlay">
+      <div class="oPanel">
+        <div class="oKanji" id="ovKanji">中断</div>
+        <div class="oTitle" id="ovTitle">PAUSED</div>
+        <div class="oList" id="ovRows"></div>
+        <div class="oHint" id="ovHint"></div>
+      </div>
+    </div>
   </div>
   <div id="err"></div>
 </div>
@@ -676,9 +713,47 @@ function mesh(pos, nor, idx) {
   gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
   const ib = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+  // Baked props overflow 16-bit indices — the arena crowd alone is ~190k
+  // vertices — so the index type follows the vertex count.
+  const big = pos.length / 3 > 65535;
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,
+    big ? new Uint32Array(idx) : new Uint16Array(idx), gl.STATIC_DRAW);
   gl.bindVertexArray(null);
-  return { vao, count: idx.length };
+  // pos/nor/idx are kept so meshes can serve as templates for mergeMesh
+  return { vao, count: idx.length,
+           type: big ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, pos, nor, idx };
+}
+
+/* Bake a list of {mesh, m} into one buffer.
+   A crowd only stops reading as rows of beans once each spectator is small on
+   screen, and small enough means well over a thousand of them. At one draw each
+   that would cost more than the entire rest of the frame, so they are merged by
+   material: ~1500 people in a dozen draws. The raw arrays are dropped afterwards
+   because a merged buffer is far too big to keep a JS copy of. */
+function mergeMesh(parts) {
+  const pos = [], nor = [], idx = [];
+  const nm = new Float32Array(9);
+  for (const p of parts) {
+    const m = p.m, src = p.mesh;
+    M4.normalMat(m, nm);
+    const base = pos.length / 3;
+    for (let i = 0; i < src.pos.length; i += 3) {
+      const x = src.pos[i], y = src.pos[i + 1], z = src.pos[i + 2];
+      pos.push(m[0] * x + m[4] * y + m[8]  * z + m[12],
+               m[1] * x + m[5] * y + m[9]  * z + m[13],
+               m[2] * x + m[6] * y + m[10] * z + m[14]);
+      const a = src.nor[i], b = src.nor[i + 1], c = src.nor[i + 2];
+      const nx = nm[0] * a + nm[3] * b + nm[6] * c;
+      const ny = nm[1] * a + nm[4] * b + nm[7] * c;
+      const nz = nm[2] * a + nm[5] * b + nm[8] * c;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      nor.push(nx / l, ny / l, nz / l);
+    }
+    for (let i = 0; i < src.idx.length; i++) idx.push(base + src.idx[i]);
+  }
+  const out = mesh(pos, nor, idx);
+  out.pos = out.nor = out.idx = null;
+  return out;
 }
 
 function buildSphere(seg, rings) {
@@ -859,6 +934,7 @@ const MESH = {
   torus:    buildTorus(72, 14, 0.017),
   belt:     buildTorus(28, 12, 0.16),
   box:      buildBox(),
+  blob:     buildSphere(8, 6),
   cone:     buildCone(24),
   coneLo:   buildCone(10),
   roof:     buildRoof(),
@@ -1008,8 +1084,14 @@ const MAT = {
              det: [0.24, 1.1, 0.42, 2.6] },
   treeFar: { albedo: srgb("#212d20"), spec: 0.07, shin: 22, rim: 0.07, fog: 1,
              det: [0.22, 0.9, 0.34, 2.2] },
-  chochin: { albedo: srgb("#3a2415"), spec: 0.04, shin: 18, rim: 0.03, fog: 0,
-             emis: [1.02, 0.50, 0.19] },
+  treeMid: { albedo: srgb("#374a31"), spec: 0.10, shin: 26, rim: 0.10, fog: 1,
+             det: [0.26, 1.3, 0.44, 3.0] },
+  // A lantern lit ONLY by emission shades flat and reads as a paper tag on a
+  // string. Keeping a real albedo, so key and fill still wrap round the cylinder,
+  // is what makes it read as a lit three-dimensional object.
+  chochin: { albedo: srgb("#c98a3e"), spec: 0.14, shin: 26, rim: 0.16, fog: 0,
+             emis: [0.52, 0.24, 0.08], det: [0.09, 5.0, 0.10, 9.0] },
+  chochRim:{ albedo: srgb("#2a1c10"), spec: 0.12, shin: 28, rim: 0.05, fog: 0 },
   // arena
   rail:    { albedo: srgb("#20222a"), spec: 0.30, shin: 60, rim: 0.07, fog: 1,
              det: [0.08, 1.0, 0.14, 4.0] },
@@ -1071,6 +1153,31 @@ const CHARS = [
     scale: 1.60, fricAdj: 0.0035 },
 ];
 
+/* ── looks ──
+   Hair and face per fighter, so the three bodies are also three faces.
+   knot  = [width, height, length, lift]   oicho = the fanned ceremonial topknot
+   brow  = [tilt, thickness]               tilt is mirrored left/right, so a
+                                           bigger positive value angles the inner
+                                           ends DOWN and reads as a scowl
+   eye   = [width, height]                 mouth = [width, height] */
+const LOOKS = {
+  IWA:     { knot: [0.21, 0.15, 0.19, -0.01], oicho: true,
+             brow: [0.10, 0.055], eye: [0.098, 0.092], mouth: [0.135, 0.040] },
+  ARASHI:  { knot: [0.15, 0.12, 0.24,  0.00], oicho: false,
+             brow: [0.26, 0.042], eye: [0.100, 0.115], mouth: [0.100, 0.050] },
+  TSUBAME: { knot: [0.105, 0.10, 0.30, 0.035], oicho: false,
+             brow: [-0.20, 0.036], eye: [0.106, 0.138], mouth: [0.088, 0.076] },
+};
+
+/* The AI's expression reports its own difficulty: the easy tier looks wide-eyed
+   and slack-jawed, the hard tier narrows its eyes and sets its jaw. Only the face
+   is overridden — the hair still belongs to whichever fighter was chosen. */
+const AI_FACE = [
+  { brow: [-0.34, 0.036], eye: [0.112, 0.148], mouth: [0.120, 0.086] },
+  null,
+  { brow: [0.50, 0.058],  eye: [0.098, 0.072], mouth: [0.150, 0.030] },
+];
+
 /* ── AI tiers ──
    Difficulty is decision quality, never extra speed or force: both fighters stay
    physically identical, so a win never feels stolen. `react` is how many frames
@@ -1078,15 +1185,20 @@ const CHARS = [
    the fraction of the radius at which it flees the rim, and `bait` how often it
    sidesteps a charge to let you sail off on your own momentum. */
 const AI_TIERS = [
-  { name: "RIKISHI",  kanji: "力士", react: 16, predict: 0,  edge: 0.86,
-    jitter: 0.22, every: 8, bait: 0.00 },
-  { name: "SEKIWAKE", kanji: "関脇", react: 14, predict: 5,  edge: 0.71,
-    jitter: 0.19, every: 6, bait: 0.20 },
-  { name: "YOKOZUNA", kanji: "横綱", react: 3,  predict: 30, edge: 0.47,
-    jitter: 0.03, every: 2, bait: 0.85 },
+  { label: "EASY",   name: "RIKISHI",  kanji: "力士", react: 16, predict: 0,
+    edge: 0.86, jitter: 0.22, every: 8, bait: 0.00 },
+  { label: "MEDIUM", name: "SEKIWAKE", kanji: "関脇", react: 14, predict: 5,
+    edge: 0.71, jitter: 0.19, every: 6, bait: 0.20 },
+  { label: "HARD",   name: "YOKOZUNA", kanji: "横綱", react: 3,  predict: 30,
+    edge: 0.47, jitter: 0.03, every: 2, bait: 0.85 },
 ];
 
 const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
+/* Settings persist across bouts. map = -1 means the venues rotate one per round,
+   which is the default; any other value pins a single venue. */
+const OPT = { map: -1, music: true, rounds: 5 };
+// The pause screen and the settings screen are the same overlay in two modes.
+const OV = { mode: null, row: 0, cameFromMenu: false };
 const AI = { on: false, tier: 1, hist: [], t: 0, dir: [0, 0] };
 
 /* ═════════════════════════════ STATE ═════════════════════════════ */
@@ -1111,6 +1223,7 @@ function makeFighter(i) {
     yaw: 0, tumble: 0, tumbleAxis: [1, 0, 0], spin: 0,
     lean: 0, leanX: 0, leanZ: 0,
     step: 0, bob: 0, squash: 0, thrust: 0, hitFlash: 0, scuffT: 0,
+    look: LOOKS.ARASHI,
     ghosts: [],
   };
 }
@@ -1129,21 +1242,21 @@ window.addEventListener("keydown", e => {
   sndInit();
   if (SND.ctx && SND.ctx.state === "suspended") SND.ctx.resume();
   if (!e.repeat) {
+    // the overlay swallows everything while it is up, so a pause screen can't be
+    // driven past by the keys that also drive the bout
+    if (OV.mode) { overlayKey(e.code); KEYS[e.code] = true; return; }
     if (e.code === "KeyM") sndToggle();
     if (G.state === "menu") {
       // either player can drive the menu; R and P stay inert so they can't skip it
       if (e.code === "Space" || e.code === "Enter") beginMatch();
+      else if (e.code === "Escape") openOverlay("settings");
       else if (e.code === "ArrowUp"   || e.code === "KeyW") menuMove(-1);
       else if (e.code === "ArrowDown" || e.code === "KeyS") menuMove(1);
       else if (e.code === "ArrowLeft" || e.code === "KeyA") menuChange(-1);
       else if (e.code === "ArrowRight"|| e.code === "KeyD") menuChange(1);
     }
-    else if (e.code === "Escape") showMenu();
+    else if (e.code === "Escape" || e.code === "KeyP") openOverlay("pause");
     else if (e.code === "KeyR") newMatch();
-    else if (e.code === "KeyP") {
-      G.paused = !G.paused;
-      HUD.pause.classList.toggle("on", G.paused);
-    }
     else if (e.code === "Space") {
       if (G.state === "roundEnd" && G.stateT <= 0) startRound();
       else if (G.state === "matchEnd") newMatch();
@@ -1257,6 +1370,7 @@ function sndInit() {
 
   SND.ready = true;
   sndVenue(G.map, true);
+  if (G.state === "menu") musStart();
 }
 const sndNow = () => SND.ctx.currentTime;
 
@@ -1460,6 +1574,148 @@ function sndCrowd(amount, dur) {
        atk: dur * 0.2, bus: SND.amb });
 }
 
+/* A gong is a stack of INHARMONIC partials with a long decay and a slow bloom —
+   structurally the opposite of the fast pitch-drop that makes a taiko. The ratios
+   below are roughly those of a struck bronze plate; the top partials die first,
+   which is what gives the shimmer that settles into a low hum. */
+function sndGong(gain) {
+  const g = gain === undefined ? 1 : gain, f0 = 74;
+  const par = [1, 2.39, 3.11, 4.16, 5.43, 6.71, 8.24, 10.9];
+  const amp = [1, 0.60, 0.46, 0.33, 0.24, 0.17, 0.11, 0.07];
+  for (let i = 0; i < par.length; i++)
+    tn({ f: f0 * par[i], dur: 4.2 - i * 0.34, gain: 0.20 * amp[i] * g,
+         atk: 0.010 + i * 0.006 });
+  nz({ f: 2300, f1: 620, q: 0.9, dur: 0.11, gain: 0.17 * g, atk: 0.001 });
+  nz({ f: 430, f1: 165, q: 0.6, dur: 1.10, gain: 0.10 * g, atk: 0.06 });
+  sndCrowd(0.45, 1.2);
+}
+
+/* ── menu music ──
+   A slow koto phrase over a shakuhachi drone in hirajoshi, the classic Japanese
+   pentatonic (root, +2, +3, +7, +8 semitones) whose minor second is most of what
+   makes it sound Japanese rather than merely pentatonic. Synthesised like
+   everything else here. Notes are scheduled ahead off the AUDIO clock rather than
+   per frame, so the tempo does not wobble with the frame rate. */
+const MUS = { playing: false, bus: null, timer: null, next: 0, step: 0 };
+const HIRAJOSHI = [0, 2, 3, 7, 8];
+const MUS_ROOT = 196;                       // G3
+const MUS_BEAT = 0.54;
+const musHz = (deg, oct) =>
+  MUS_ROOT * Math.pow(2, (HIRAJOSHI[((deg % 5) + 5) % 5] + 12 * oct) / 12);
+
+/* One 32-beat phrase: a descending line that answers itself, with long held
+   notes and a lot of space. `d` is scale degree, `o` octave, `L` length in beats. */
+const MUS_MEL = [
+  { s: 0,  d: 4, o: 1, L: 3 }, { s: 3,  d: 3, o: 1, L: 2 },
+  { s: 5,  d: 2, o: 1, L: 3 }, { s: 8,  d: 1, o: 1, L: 4 },
+  { s: 12, d: 0, o: 1, L: 2 }, { s: 14, d: 4, o: 0, L: 2 },
+  { s: 16, d: 3, o: 0, L: 4 }, { s: 20, d: 2, o: 0, L: 2 },
+  { s: 22, d: 3, o: 0, L: 2 }, { s: 24, d: 1, o: 0, L: 4 },
+  { s: 28, d: 0, o: 0, L: 4 },
+];
+// the flute enters twice a phrase, holding under the koto
+const MUS_FLUTE = [{ s: 6, d: 0, o: 1, L: 7 }, { s: 22, d: 4, o: 0, L: 8 }];
+
+// A plucked string is two detuned triangles plus upper partials through a filter
+// that shuts fast, with a noise chiff at the moment of the pluck.
+function koto(f, at, dur, gain) {
+  const ctx = SND.ctx, t = sndNow() + at;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(1e-4, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(2e-4, gain), t + 0.006);
+  g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+  const flt = ctx.createBiquadFilter();
+  flt.type = "lowpass"; flt.Q.value = 1.1;
+  flt.frequency.setValueAtTime(Math.min(11000, f * 9), t);
+  flt.frequency.exponentialRampToValueAtTime(Math.max(200, f * 2.1), t + dur * 0.7);
+  flt.connect(g); g.connect(MUS.bus);
+  for (const [mul, det, amp] of [[1, 1, 1], [1, 1.0035, 0.5], [2, 1, 0.20], [3, 1, 0.085]]) {
+    const o = ctx.createOscillator();
+    o.type = mul === 1 ? "triangle" : "sine";
+    o.frequency.value = f * mul * det;
+    const og = ctx.createGain(); og.gain.value = amp;
+    o.connect(og); og.connect(flt);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = SND.noise; src.loop = true;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(gain * 0.55, t);
+  ng.gain.exponentialRampToValueAtTime(1e-4, t + 0.035);
+  src.connect(ng); ng.connect(flt);
+  src.start(t, srand() * 1.5); src.stop(t + 0.08);
+}
+
+// Shakuhachi: a sine with vibrato and a bend up into the note, plus the breath
+// noise that is most of the instrument's character.
+function shaku(f, at, dur, gain) {
+  const ctx = SND.ctx, t = sndNow() + at;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(1e-4, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(2e-4, gain), t + dur * 0.30);
+  g.gain.setValueAtTime(Math.max(2e-4, gain), t + dur * 0.62);
+  g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+  g.connect(MUS.bus);
+  const o = ctx.createOscillator(); o.type = "sine";
+  o.frequency.setValueAtTime(f * 0.982, t);
+  o.frequency.linearRampToValueAtTime(f, t + 0.16);
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 4.7;
+  const lg = ctx.createGain(); lg.gain.value = f * 0.007;
+  lfo.connect(lg); lg.connect(o.frequency);
+  lfo.start(t); lfo.stop(t + dur + 0.05);
+  o.connect(g); o.start(t); o.stop(t + dur + 0.05);
+  const src = ctx.createBufferSource();
+  src.buffer = SND.noise; src.loop = true;
+  const bp = ctx.createBiquadFilter();
+  bp.type = "bandpass"; bp.frequency.value = f * 3.1; bp.Q.value = 1.5;
+  const ng = ctx.createGain(); ng.gain.value = 0.19;
+  src.connect(bp); bp.connect(ng); ng.connect(g);
+  src.start(t, srand() * 1.5); src.stop(t + dur + 0.05);
+}
+
+function musSchedule() {
+  if (!MUS.playing) return;
+  const AHEAD = 2.0;
+  while (MUS.next < sndNow() + AHEAD) {
+    const at = Math.max(0, MUS.next - sndNow());
+    const step = MUS.step % 32;
+    for (const m of MUS_MEL) if (m.s === step)
+      koto(musHz(m.d, m.o), at, m.L * MUS_BEAT * 1.5, 0.085);
+    for (const m of MUS_FLUTE) if (m.s === step)
+      shaku(musHz(m.d, m.o), at, m.L * MUS_BEAT, 0.05);
+    // a soft heartbeat on the phrase boundaries, well under the melody
+    if (step === 0 || step === 16)
+      tn({ f: 96, f1: 44, dur: 0.5, gain: 0.05, at, bus: MUS.bus });
+    MUS.next += MUS_BEAT;
+    MUS.step++;
+  }
+}
+
+function musStart() {
+  if (!SND.ready || !OPT.music || MUS.playing) return;
+  if (!MUS.bus) {
+    MUS.bus = SND.ctx.createGain();
+    MUS.bus.connect(SND.amb);        // rides the same duck as the ambience
+  }
+  const t = sndNow();
+  MUS.bus.gain.cancelScheduledValues(t);
+  MUS.bus.gain.setValueAtTime(0.0001, t);
+  MUS.bus.gain.exponentialRampToValueAtTime(1, t + 1.6);
+  MUS.playing = true; MUS.step = 0; MUS.next = t + 0.35;
+  musSchedule();
+  MUS.timer = setInterval(musSchedule, 350);
+}
+
+function musStop() {
+  if (!MUS.playing) return;
+  MUS.playing = false;
+  clearInterval(MUS.timer); MUS.timer = null;
+  const t = sndNow();
+  MUS.bus.gain.cancelScheduledValues(t);
+  MUS.bus.gain.setValueAtTime(Math.max(2e-4, MUS.bus.gain.value), t);
+  MUS.bus.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+}
+
 function sndToggle() {
   SND.on = !SND.on;
   if (SND.ready) {
@@ -1485,7 +1741,12 @@ const HUD = {
   bTitle: document.getElementById("bTitle"),
   bSub: document.getElementById("bSub"),
   bHint: document.getElementById("bHint"),
-  pause: document.getElementById("paused"),
+  gear: document.getElementById("gear"),
+  overlay: document.getElementById("overlay"),
+  ovKanji: document.getElementById("ovKanji"),
+  ovTitle: document.getElementById("ovTitle"),
+  ovRows: document.getElementById("ovRows"),
+  ovHint: document.getElementById("ovHint"),
   menu: document.getElementById("menu"),
   hud: document.getElementById("hud"),
   venue: document.getElementById("venue"),
@@ -1530,9 +1791,8 @@ function menuRows() {
   ];
   if (MENU.mode === 1) {
     const T = AI_TIERS[MENU.diff];
-    rows.push({ lbl: "DIFFICULTY", val: T.kanji + "  " + T.name,
-      note: ["overcommits, falls out", "trades blows, makes errors",
-             "baits you off the edge"][MENU.diff],
+    rows.push({ lbl: "DIFFICULTY", val: T.label,
+      note: T.kanji + "  " + T.name,        // the rank stays as flavour only
       get: () => MENU.diff, set: v => MENU.diff = (v + 3) % 3, n: 3 });
   }
   for (let i = 0; i < 2; i++) {
@@ -1587,11 +1847,139 @@ function applyChars() {
     const f = F[i], c = CHARS[MENU.chars[i]];
     f.char = c; f.mass = c.mass; f.hitR = c.hitR;
     f.accel = CFG.accel * c.accel; f.fricAdj = c.fricAdj; f.scale = c.scale;
+    // hair always comes from the character; the face can be overridden by the
+    // AI tier when this fighter is the one being driven by it
+    const base = LOOKS[c.name];
+    const ai = (MENU.mode === 1 && i === 1) ? AI_FACE[MENU.diff] : null;
+    f.look = { knot: base.knot, oicho: base.oicho,
+               brow: (ai && ai.brow) || base.brow,
+               eye:  (ai && ai.eye)  || base.eye,
+               mouth:(ai && ai.mouth)|| base.mouth };
   }
   // name plates: character, and who's driving red
   HUD.tag[0].textContent = CHARS[MENU.chars[0]].kanji + " " + CHARS[MENU.chars[0]].name;
   HUD.tag[1].textContent = CHARS[MENU.chars[1]].kanji + " " + CHARS[MENU.chars[1]].name +
-    (MENU.mode === 1 ? "  ·  " + AI_TIERS[MENU.diff].name : "");
+    (MENU.mode === 1 ? "  ·  " + AI_TIERS[MENU.diff].label : "");
+}
+
+/* ═════════════════════════ PAUSE / SETTINGS OVERLAY ═════════════════════════ */
+
+function rebuildPips() {
+  for (let i = 0; i < 2; i++) {
+    HUD.pips[i].textContent = "";
+    for (let k = 0; k < CFG.roundsToWin; k++) {
+      const d = document.createElement("div"); d.className = "pip";
+      HUD.pips[i].appendChild(d);
+    }
+  }
+  syncHUD();
+}
+
+const MAP_NAMES = () => ["AUTO · ROTATE"].concat(MAPS.map(m => m.kanji + "  " + m.name));
+
+function ovRows() {
+  if (OV.mode === "pause") return [
+    { lbl: "RESUME",     act: () => closeOverlay() },
+    { lbl: "RESTART",    act: () => { closeOverlay(); newMatch(); } },
+    { lbl: "SETTINGS",   act: () => openOverlay("settings") },
+    { lbl: "MAIN MENU",  act: () => { closeOverlay(); showMenu(); } },
+  ];
+  // settings
+  return [
+    { lbl: "VENUE", val: MAP_NAMES()[OPT.map + 1],
+      note: OPT.map < 0 ? "a new venue each round" : "this venue every round",
+      set: d => { OPT.map = ((OPT.map + 1 + d) + (MAPS.length + 1)) % (MAPS.length + 1) - 1;
+                  applyMap(OPT.map < 0 ? G.round - 1 : OPT.map); } },
+    { lbl: "ROUNDS", val: String(CFG.roundsToWin),
+      note: "rounds needed to take the bout",
+      set: d => { CFG.roundsToWin = clamp(CFG.roundsToWin + d, 1, 9);
+                  OPT.rounds = CFG.roundsToWin; rebuildPips(); } },
+    { lbl: "MUSIC", val: OPT.music ? "ON" : "OFF",
+      note: "koto and shakuhachi on the menu",
+      set: () => { OPT.music = !OPT.music;
+                   if (OPT.music && G.state === "menu") musStart(); else musStop(); } },
+    { lbl: "SOUND", val: SND.on ? "ON" : "OFF",
+      note: "impacts, drums and ambience",
+      set: () => sndToggle() },
+    { lbl: OV.cameFromMenu ? "BACK TO MENU" : "BACK", act: () => {
+        if (OV.cameFromMenu) closeOverlay(); else openOverlay("pause"); } },
+  ];
+}
+
+function renderOverlay() {
+  const rows = ovRows();
+  if (OV.row >= rows.length) OV.row = rows.length - 1;
+  HUD.ovRows.textContent = "";
+  rows.forEach((r, i) => {
+    const el = document.createElement("div");
+    el.className = "oRow" + (i === OV.row ? " sel" : "");
+    const lbl = document.createElement("div");
+    lbl.className = "oLbl"; lbl.textContent = r.lbl;
+    el.append(lbl);
+    if (r.set) {
+      const l = document.createElement("div"); l.className = "oChev"; l.textContent = "‹";
+      const v = document.createElement("div"); v.className = "oVal"; v.textContent = r.val;
+      const rt = document.createElement("div"); rt.className = "oChev"; rt.textContent = "›";
+      const n = document.createElement("div"); n.className = "oNote"; n.textContent = r.note || "";
+      el.append(l, v, rt, n);
+    } else {
+      // an action row is one centred label, not a settings row with blank columns
+      el.classList.add("act");
+    }
+    el.onclick = () => { OV.row = i; if (r.act) r.act(); else { r.set(1); renderOverlay(); } };
+    HUD.ovRows.append(el);
+  });
+  const set = OV.mode === "settings";
+  HUD.ovKanji.textContent = set ? "設定" : "中断";
+  HUD.ovTitle.textContent = set ? "SETTINGS" : "PAUSED";
+  HUD.ovHint.innerHTML = set
+    ? '↑↓ SELECT · ←→ CHANGE · <span class="kbd">ESC</span> BACK'
+    : '↑↓ SELECT · <span class="kbd">SPACE</span> CONFIRM · <span class="kbd">P</span> RESUME';
+}
+
+function openOverlay(mode) {
+  if (mode === "settings" && OV.mode === null) OV.cameFromMenu = G.state === "menu";
+  if (mode === "pause") OV.cameFromMenu = false;
+  OV.mode = mode; OV.row = 0;
+  // the sim is frozen while either screen is up
+  if (G.state !== "menu") G.paused = true;
+  HUD.overlay.classList.add("on");
+  sndClack(1.05, 0.5);
+  renderOverlay();
+}
+
+function closeOverlay() {
+  OV.mode = null;
+  HUD.overlay.classList.remove("on");
+  G.paused = false;
+  sndClack(0.9, 0.45);
+}
+
+// the gear is the mouse route into settings; HUD must already exist to bind it
+HUD.gear.addEventListener("click", () => {
+  sndInit();
+  if (SND.ctx && SND.ctx.state === "suspended") SND.ctx.resume();
+  if (OV.mode === "settings") { if (OV.cameFromMenu) closeOverlay(); else openOverlay("pause"); }
+  else openOverlay("settings");
+});
+
+function overlayKey(code) {
+  const rows = ovRows();
+  if (code === "ArrowUp"   || code === "KeyW") {
+    OV.row = (OV.row - 1 + rows.length) % rows.length; sndClack(1.45, 0.3); renderOverlay(); }
+  else if (code === "ArrowDown" || code === "KeyS") {
+    OV.row = (OV.row + 1) % rows.length; sndClack(1.45, 0.3); renderOverlay(); }
+  else if (code === "ArrowLeft"  || code === "KeyA") {
+    const r = rows[OV.row]; if (r.set) { r.set(-1); sndClack(1.15, 0.42); renderOverlay(); } }
+  else if (code === "ArrowRight" || code === "KeyD") {
+    const r = rows[OV.row]; if (r.set) { r.set(1); sndClack(1.15, 0.42); renderOverlay(); } }
+  else if (code === "Space" || code === "Enter") {
+    const r = rows[OV.row];
+    if (r.act) r.act(); else { r.set(1); renderOverlay(); } }
+  else if (code === "Escape") {
+    if (OV.mode === "settings") { if (OV.cameFromMenu) closeOverlay(); else openOverlay("pause"); }
+    else closeOverlay(); }
+  else if (code === "KeyP" && OV.mode === "pause") closeOverlay();
 }
 
 // The menu holds the bout but leaves the dojo live behind it — fighters squared
@@ -1603,15 +1991,16 @@ function showMenu() {
   startRound();
   G.state = "menu";
   G.paused = false;
-  HUD.pause.classList.remove("on");
   HUD.count.classList.remove("show");
   HUD.menu.classList.add("on");
   HUD.hud.classList.add("menu");
   MENU.row = 0;
   renderMenu();
+  musStart();
 }
 
 function beginMatch() {
+  musStop();
   sndClack(0.85, 1.0); sndClack(0.85, 0.9, 0.10);   // the ring is called
   HUD.menu.classList.remove("on");
   HUD.hud.classList.remove("menu");
@@ -1630,7 +2019,7 @@ function startRound() {
   // 222 = three 60-frame beats (3, 2, 1) plus 42 frames of GO!. Any higher and
   // ceil() briefly shows a "4" on the first frames.
   G.state = "countdown"; G.cd = 222; lastCd = -1;
-  applyMap(G.round - 1);          // venues rotate one per round
+  applyMap(OPT.map < 0 ? G.round - 1 : OPT.map);   // rotate, or a pinned venue
   applyChars();
   AI.on = MENU.mode === 1; AI.tier = MENU.diff;
   AI.hist.length = 0; AI.t = 0; AI.dir = [0, 0];
@@ -1973,6 +2362,7 @@ function step() {
     if (n !== lastCd) {
       lastCd = n;
       if (n > 0) {
+        if (n === 3) sndGong(1.0);               // rings on through the count
         showCount(String(n), false);
         sndTaiko(1 + (3 - n) * 0.07, 0.85);      // pitch rises 3 → 2 → 1
       } else {
@@ -2235,18 +2625,33 @@ const PETALS = Array.from({ length: 90 }, () => {
    edges. Out to the SIDES at z=-2..-7 there are 4.7 to 7.4 units to play with,
    so that is where the actual trees go, and the back arc gets a low hedge. */
 /* Trees were tried here and cut: at z=-3 the frame ceiling is ~6.5, so a canopy
-   is sliced off at the top and the trunk crosses the shot as a bare diagonal
-   bar. Anything much above waist height in the back half of this set reads as an
-   unidentifiable dark mass. What the envelope WILL carry is a continuous low
-   hedge, so the planting is all hedge and it is packed dense enough to read as
-   one bank of foliage rather than as separate lumps. */
-const HEDGE = Array.from({ length: 132 }, (_, i) => {
-  const a = -Math.PI * 0.5 + (i / 131 - 0.5) * 4.5;
-  const r = 10.3 + scatter() * 2.6;
-  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
-           s: 1.35 + scatter() * 1.05, h: 0.66 + scatter() * 0.72,
-           ry: scatter() * 3.14, far: scatter() > 0.5 };
-});
+   gets sliced off and the trunk crosses the shot as a bare diagonal bar. Nothing
+   much above waist height survives in the back half of this set.
+   The hedge that replaced them was built from boulder-sized spheres and read as
+   a pile of rocks. Foliage only reads as foliage when the individual masses are
+   SMALL and numerous, so this is ~1400 little clumps in a three-deep bank,
+   baked into three draws. */
+const HEDGE = (() => {
+  const groups = [[], [], []];
+  for (let band = 0; band < 3; band++) {
+    const r0 = 10.1 + band * 0.95;
+    const count = 200 + band * 40;
+    for (let i = 0; i < count; i++) {
+      const a = -Math.PI * 0.5 + (i / (count - 1) - 0.5) * 4.6
+              + (scatter() - 0.5) * 0.05;
+      const r = r0 + (scatter() - 0.5) * 1.05;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (z > 3.0) continue;
+      const s = 0.42 + scatter() * 0.46;
+      const h = 0.30 + scatter() * 0.44 + band * 0.16;
+      groups[(scatter() * 3) | 0].push({ mesh: MESH.blob,
+        m: M4.trs(x, h * 0.52, z, (scatter() - 0.5) * 0.4, scatter() * 3.14, 0,
+                  s, h, s * 0.88) });
+    }
+  }
+  const mats = [MAT.tree, MAT.treeFar, MAT.treeMid];
+  return groups.map((g, i) => ({ mesh: mergeMesh(g), mat: mats[i] }));
+})();
 
 // ishidoro — a stone lantern; the fire box is emissive so it blooms at night
 function ishidoro(x, z) {
@@ -2307,11 +2712,9 @@ function shrine() {
          MAT.stoneLt, { cast: false, grid: 7 });
   }
 
-  // the hedge bank enclosing the grounds
-  for (const b of HEDGE)
-    push(MESH.sphereLo, M4.trs(b.x, b.h * 0.44, b.z, 0, b.ry, 0,
-         b.s, b.h, b.s * 0.82), b.far ? MAT.treeFar : MAT.tree,
-         { cast: false, ao: 0.35, aoY: 0 });
+  // the hedge bank enclosing the grounds — baked, three draws
+  const I0 = M4.trs(0, 0, 0, 0, 0, 0, 1, 1, 1);
+  for (const g of HEDGE) push(g.mesh, I0, g.mat, { cast: false, ao: 0.30, aoY: 0 });
 
   // A torii cannot read here — at this pitch only its bottom ~1.9u is in frame.
   // Low shrine cues work instead: the stone approach steps and a pair of komainu.
@@ -2342,7 +2745,11 @@ function shrine() {
     push(MESH.box, M4.trs(x, 2.68 - sag, -5.2, 0, 0, 0, 0.03, 0.24, 0.03),
          MAT.rope, { cast: false, recv: false });
     push(MESH.cyl, M4.trs(x, 2.34 - sag, -5.2, 0, 0, 0, 0.30, 0.42, 0.30),
-         MAT.chochin, { cast: false, recv: false });
+         MAT.chochin, { cast: false });
+    // dark hoops top and bottom, which is what makes it a lantern and not a tube
+    for (const dy of [0.215, -0.215])
+      push(MESH.cyl, M4.trs(x, 2.34 - sag + dy, -5.2, 0, 0, 0, 0.20, 0.055, 0.20),
+           MAT.chochRim, { cast: false });
   }
 
   ishidoro(-7.5, -5.8); ishidoro(7.5, -5.8);
@@ -2375,41 +2782,51 @@ const CROWD_MAT = ["#2a2622", "#232a2e", "#302623", "#20262a", "#2b2620",
 const CROWD_SKIN = ["#5c4634", "#4c3928", "#66503c", "#403022"].map(h => ({
   albedo: srgb(h), spec: 0.02, shin: 18, rim: 0.015, fog: 1 }));
 
+/* Spectators are baked, and deliberately small: at roughly a unit across they
+   read as individual beans in neat radial arcs, which is exactly how the first
+   two passes looked. At a third of that size, four rows deep and jittered, the
+   same geometry reads as a packed crowd. That takes ~1500 figures, so they are
+   merged into one mesh per colour — a dozen draws for the whole hall. */
 const CROWD = (() => {
-  const out = [];
+  const bodies = CROWD_MAT.map(() => []);
+  const heads = CROWD_SKIN.map(() => []);
+  let n = 0;
   for (let t = 0; t < TIERS.length; t++) {
     const [r, h] = TIERS[t];
-    /* Three staggered rows per tier. Evenly spaced arcs of identical ellipsoids
-       read as strings of beads, so radius, height, scale, proportion and angle
-       all get jitter, and roughly one seat in twelve is left empty. The front
-       arc is skipped entirely — at z>4.5 it is either behind the camera or
-       looming in the bottom corners as a row of dark lumps. */
-    for (let row = 0; row < 3; row++) {
-      const rr0 = r * (0.785 + row * 0.075);
-      const n = Math.round(6.2832 * rr0 / 0.74);
-      for (let i = 0; i < n; i++) {
-        if (scatter() < 0.085) continue;
-        const a = (i / n) * 6.2832 + t * 0.29 + (row * 0.37 + scatter() * 0.5) / n * 6.2832;
-        const rr = rr0 + (scatter() - 0.5) * 0.34;
+    for (let row = 0; row < 4; row++) {
+      const rr0 = r * (0.775 + row * 0.052);
+      const count = Math.round(6.2832 * rr0 / 0.34);
+      for (let i = 0; i < count; i++) {
+        if (scatter() < 0.05) continue;                  // a few empty seats
+        const a = (i / count) * 6.2832
+                + (row * 0.42 + scatter() * 0.55) / count * 6.2832;
+        const rr = rr0 + (scatter() - 0.5) * 0.17;
         const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-        if (z > 4.5) continue;
-        out.push({ x, z, y: h + (scatter() - 0.5) * 0.07,
-                   ry: aimYaw(x, z) + (scatter() - 0.5) * 0.8,
-                   s: 0.84 + scatter() * 0.34,
-                   w: 0.86 + scatter() * 0.30,
-                   c: CROWD_MAT[(scatter() * CROWD_MAT.length) | 0],
-                   k: CROWD_SKIN[(scatter() * CROWD_SKIN.length) | 0] });
+        if (z > 4.2) continue;      // front arc is level with or behind the lens
+        const sc = 0.88 + scatter() * 0.30;
+        const ry = aimYaw(x, z) + (scatter() - 0.5) * 0.75;
+        const y = h + (scatter() - 0.5) * 0.035;
+        bodies[(scatter() * bodies.length) | 0].push({ mesh: MESH.blob,
+          m: M4.trs(x, y + 0.115 * sc, z, 0, ry, 0,
+                    0.34 * sc, 0.23 * sc, 0.25 * sc) });
+        heads[(scatter() * heads.length) | 0].push({ mesh: MESH.blob,
+          m: M4.trs(x, y + 0.245 * sc, z, 0, ry, 0,
+                    0.115 * sc, 0.12 * sc, 0.115 * sc) });
+        n++;
       }
     }
   }
-  return out;
+  return { n,
+    bodies: bodies.map((p, i) => ({ mesh: mergeMesh(p), mat: CROWD_MAT[i] })),
+    heads: heads.map((p, i) => ({ mesh: mergeMesh(p), mat: CROWD_SKIN[i] })) };
 })();
 
 // the five shinpan, seated in black at the ring apron — unmistakably sumo
 const SHINPAN = [0, 1, 2, 3, 4].map(i => {
   const a = -Math.PI / 2 + (i - 2) * 0.62;
-  return { x: Math.cos(a) * 6.6, z: Math.sin(a) * 6.6, ry: 0 };
-}).map(p => ({ ...p, ry: aimYaw(p.x, p.z) }));
+  const x = Math.cos(a) * 6.6, z = Math.sin(a) * 6.6;
+  return { x, z, ry: aimYaw(x, z) };
+});
 
 function arena() {
   push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.arenaFl,
@@ -2432,19 +2849,21 @@ function arena() {
          { cast: false, pool: true });
   }
 
-  for (const c of CROWD) {
-    push(MESH.sphereLo, M4.trs(c.x, c.y + 0.23 * c.s, c.z, 0, c.ry, 0,
-         1.02 * c.s * c.w, 0.50 * c.s, 0.62 * c.s), c.c,
-         { cast: false, pool: true, ao: 0.66, aoY: c.y });
-    push(MESH.sphereLo, M4.trs(c.x, c.y + 0.47 * c.s, c.z, 0, c.ry, 0,
-         0.21 * c.s, 0.20 * c.s, 0.21 * c.s), c.k,
-         { cast: false, pool: true, ao: 0.50, aoY: c.y });
-  }
+  // the baked crowd: one draw per colour group, ~1500 people
+  const I = M4.trs(0, 0, 0, 0, 0, 0, 1, 1, 1);
+  for (const g of CROWD.bodies)
+    push(g.mesh, I, g.mat, { cast: false, pool: true });
+  for (const g of CROWD.heads)
+    push(g.mesh, I, g.mat, { cast: false, pool: true });
 
+  // Seated in formal black: lap, torso, head. A single 0.66 sphere per judge read
+  // as a bowling ball parked on the apron.
   for (const p of SHINPAN) {
-    push(MESH.sphereLo, M4.trs(p.x, 0.30, p.z, 0, p.ry, 0, 0.66, 0.66, 0.56),
-         MAT.woodDark, { ao: 0.55, aoY: 0 });
-    push(MESH.sphereLo, M4.trs(p.x, 0.74, p.z, 0, p.ry, 0, 0.27, 0.30, 0.27),
+    push(MESH.sphereLo, M4.trs(p.x, 0.15, p.z, 0, p.ry, 0, 0.52, 0.26, 0.44),
+         MAT.woodDark, { ao: 0.50, aoY: 0 });
+    push(MESH.sphereLo, M4.trs(p.x, 0.37, p.z, 0, p.ry, 0, 0.38, 0.28, 0.30),
+         MAT.woodDark, { ao: 0.32, aoY: 0 });
+    push(MESH.sphereLo, M4.trs(p.x, 0.58, p.z, 0, p.ry, 0, 0.145, 0.155, 0.145),
          CROWD_SKIN[1], { cast: false });
   }
 
@@ -2804,18 +3223,32 @@ function fighter(f) {
     M4.mul(headBase, M4.trs(lx, ly, lz, rx, ry, rz, sx, sy, sz));
 
   push(MESH.sphere, HM(0, 0, 0, 0, 0, 0, 0.48, 0.50, 0.47), B);
-  push(MESH.sphere, HM(RIG.knot[0], RIG.knot[1], RIG.knot[2], 0.55, 0, 0, 0.15, 0.12, 0.24),
-       MAT.hair);
-  for (const e of RIG.eyes)
-    push(MESH.sphereLo, HM(e[0], e[1], e[2], 0, 0, 0, 0.10, 0.115, 0.075), MAT.eye,
+
+  const L = f.look || LOOKS.ARASHI;
+  // chonmage: the topknot swept back over the crown
+  const K = L.knot;
+  push(MESH.sphere, HM(RIG.knot[0], RIG.knot[1] + K[3], RIG.knot[2], 0.55, 0, 0,
+       K[0], K[1], K[2]), MAT.hair);
+  // oicho-mage — the fanned ceremonial knot, two lobes splayed off the tail
+  if (L.oicho) for (const sx of [-1, 1])
+    push(MESH.sphereLo, HM(RIG.knot[0] + sx * 0.115, RIG.knot[1] + K[3] + 0.015,
+         RIG.knot[2] - 0.10, 0.5, 0, sx * 0.5, 0.115, 0.055, 0.145), MAT.hair,
          { cast: false });
+  // No hairline band: one was tried and it sat as a black cap right over the
+  // brows and eyes. A shaved pate with only the chonmage is also what a rikishi
+  // actually has, so the knot does all the work.
+
+  for (const e of RIG.eyes)
+    push(MESH.sphereLo, HM(e[0], e[1], e[2], 0, 0, 0, L.eye[0], L.eye[1], 0.075),
+         MAT.eye, { cast: false });
   for (let i = 0; i < 2; i++) {
     const e = RIG.brows[i], side = i === 0 ? -1 : 1;
-    push(MESH.sphereLo, HM(e[0], e[1], e[2], 0, 0, side * (0.26 + th * 0.30),
-         0.15, 0.042, 0.075), MAT.hair, { cast: false });
+    push(MESH.sphereLo, HM(e[0], e[1], e[2], 0, 0, side * (L.brow[0] + th * 0.30),
+         0.15, L.brow[1], 0.075), MAT.hair, { cast: false });
   }
   push(MESH.sphereLo, HM(RIG.mouth[0], RIG.mouth[1], RIG.mouth[2], 0, 0, 0,
-       0.10 + th * 0.07, 0.05 + th * 0.07, 0.07), MAT.eye, { cast: false });
+       L.mouth[0] + th * 0.07, L.mouth[1] + th * 0.07, 0.07), MAT.eye,
+       { cast: false });
 
   // ── speed ghosts (transparent afterimages of the mass) ──
   for (const g of f.ghosts) {
@@ -2970,7 +3403,7 @@ function drawScene(proj, view, eye) {
     aoTmp[0] = d.ao; aoTmp[1] = d.aoY;
     gl.uniform2fv(P.u.uAo, aoTmp);
     gl.bindVertexArray(d.mesh.vao);
-    gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(gl.TRIANGLES, d.mesh.count, d.mesh.type, 0);
   };
 
   for (const d of opaque) emit(d);
@@ -2994,7 +3427,7 @@ function shadowPass() {
     if (!d.cast || d.blend) continue;
     gl.uniformMatrix4fv(DEPTH.u.uModel, false, d.m);
     gl.bindVertexArray(d.mesh.vao);
-    gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(gl.TRIANGLES, d.mesh.count, d.mesh.type, 0);
   }
   gl.enable(gl.CULL_FACE);
   gl.bindVertexArray(null);
@@ -3135,8 +3568,10 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                camera, drawList, showMenu, beginMatch, MAPS, ENV, applyMap,
                MENU, AI, AI_TIERS, CHARS, SURF, renderMenu, menuMove, menuChange,
                SND, sndInit, sndHit, sndTaiko, sndClack, sndFall, sndLand, sndCrowd,
-               sndScuff, sndVenue, sndToggle, sndShove, sndDuck, BEDS,
-               render, gl, MESH, push, ENV, lightVP };
+               sndScuff, sndVenue, sndToggle, sndShove, sndDuck, sndGong, BEDS,
+               render, gl, MESH, push, ENV, lightVP, mergeMesh,
+               OPT, OV, LOOKS, AI_FACE, MUS, musStart, musStop, koto, shaku,
+               openOverlay, closeOverlay, renderOverlay, ovRows, CROWD, HEDGE };
 </script>
 </body>
 </html>
