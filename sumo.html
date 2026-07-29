@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SUMO — Studio Bout</title>
+<title>SUMO — Dojo Bout</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%;background:#08080d;overflow:hidden;
@@ -42,6 +42,8 @@
   /* ---------- centre chrome ---------- */
   #meta{position:absolute;top:32px;left:50%;transform:translateX(-50%);text-align:center}
   #metaTop{font-size:11px;font-weight:800;letter-spacing:.3em;color:rgba(255,255,255,.4)}
+  #venue{margin-top:7px;font-size:10px;font-weight:800;letter-spacing:.26em;
+    color:rgba(217,184,119,.72)}
   #warn{margin-top:8px;font-size:13px;font-weight:800;letter-spacing:.22em;color:#ff7a55;
     opacity:0;transition:opacity .3s}
   #warn.on{opacity:1;animation:warnPulse 1s ease-in-out infinite}
@@ -84,6 +86,62 @@
   #foot{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
     font-size:11px;font-weight:700;letter-spacing:.2em;color:rgba(255,255,255,.28);
     white-space:nowrap}
+  /* ---------- main menu ---------- */
+  /* top and bottom bands, so the two fighters stay framed in the middle */
+  #menu{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:space-between;padding:7vh 0 6vh;
+    opacity:0;pointer-events:none;transition:opacity .45s ease;
+    background:
+      linear-gradient(rgba(6,4,3,.72) 0%,rgba(6,4,3,.24) 30%,
+                      rgba(6,4,3,.24) 56%,rgba(6,4,3,.80) 100%),
+      radial-gradient(72% 56% at 50% 50%,rgba(10,7,4,.04),rgba(6,4,3,.40))}
+  #menu.on{opacity:1}
+  .mTop,.mBot{display:flex;flex-direction:column;align-items:center}
+  #mKanji{font-size:15px;font-weight:800;letter-spacing:.66em;text-indent:.66em;
+    color:#d9b877}
+  #mTitle{margin-top:14px;font-size:92px;font-weight:800;letter-spacing:.01em;
+    line-height:.88;background:linear-gradient(#fff9ee,#e0bf85);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 10px 34px rgba(0,0,0,.62))}
+  #mSub{display:flex;align-items:center;gap:18px;margin-top:16px;font-size:11px;
+    font-weight:800;letter-spacing:.36em;color:rgba(255,255,255,.52)}
+  #mSub::before,#mSub::after{content:"";width:60px;height:1px}
+  #mSub::before{background:linear-gradient(90deg,transparent,rgba(217,184,119,.85))}
+  #mSub::after{background:linear-gradient(90deg,rgba(217,184,119,.85),transparent)}
+  /* selectable option rows */
+  #mRows{display:flex;flex-direction:column;gap:3px}
+  .oRow{display:flex;align-items:center;gap:10px;padding:0 16px;border-radius:9px;
+    height:32px;font-size:12px;font-weight:800;letter-spacing:.2em;white-space:nowrap;
+    border:1px solid transparent;transition:background .15s,border-color .15s}
+  .oRow.sel{background:rgba(255,255,255,.075);border-color:rgba(217,184,119,.42)}
+  .oLbl{width:104px;text-align:right;font-size:10px;letter-spacing:.24em;
+    color:rgba(255,255,255,.38)}
+  .oRow.sel .oLbl{color:rgba(217,184,119,.95)}
+  .oVal{min-width:186px;text-align:center;color:rgba(255,255,255,.5)}
+  .oRow.sel .oVal{color:#fff}
+  .oVal.p1{color:#7fd0ff}
+  .oVal.p2{color:#ffab9e}
+  .oChev{font-size:11px;color:rgba(255,255,255,.22)}
+  .oRow.sel .oChev{color:rgba(217,184,119,.8)}
+  .oNote{font-size:9px;letter-spacing:.16em;color:rgba(255,255,255,.3);
+    width:214px;text-align:left;overflow:hidden;text-overflow:ellipsis}
+  #mStart{margin-top:30px;font-size:13px;font-weight:800;letter-spacing:.3em;color:#fff}
+  #mStart span{animation:hintPulse 1.7s ease-in-out infinite}
+  #mFoot{margin-top:18px;font-size:10px;font-weight:700;letter-spacing:.2em;
+    color:rgba(255,255,255,.3)}
+  /* staggered entrance */
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  #menu.on .mTop>*,#menu.on .mBot>*{animation:rise .75s cubic-bezier(.2,.85,.2,1) backwards}
+  #menu.on .mTop>*:nth-child(1){animation-delay:.06s}
+  #menu.on .mTop>*:nth-child(2){animation-delay:.14s}
+  #menu.on .mTop>*:nth-child(3){animation-delay:.24s}
+  #menu.on .mBot>*:nth-child(1){animation-delay:.34s}
+  #menu.on .mBot>*:nth-child(2){animation-delay:.44s}
+  #menu.on .mBot>*:nth-child(3){animation-delay:.52s}
+  /* the in-game chrome steps aside while the menu is up */
+  #hud.menu .board,#hud.menu #meta,#hud.menu #foot{opacity:0}
+  .board,#meta,#foot{transition:opacity .35s ease}
+
   #paused{position:absolute;left:50%;top:14%;transform:translateX(-50%);opacity:0;
     font-size:12px;font-weight:800;letter-spacing:.34em;color:rgba(255,255,255,.75);
     transition:opacity .2s}
@@ -106,7 +164,7 @@
         <div class="bname">BLUE</div>
         <div class="bscore" id="s1">0</div>
         <div class="pips" id="pip1"></div>
-        <div class="keycap">W A S D</div>
+        <div class="keycap" id="tag1">嵐 ARASHI</div>
       </div>
     </div>
 
@@ -116,12 +174,13 @@
         <div class="bname">RED</div>
         <div class="bscore" id="s2">0</div>
         <div class="pips" id="pip2"></div>
-        <div class="keycap">↑ ← ↓ →</div>
+        <div class="keycap" id="tag2">嵐 ARASHI</div>
       </div>
     </div>
 
     <div id="meta">
       <div id="metaTop">ROUND 1 · FIRST TO 5</div>
+      <div id="venue">稽古場 · KEIKO DOJO</div>
       <div id="warn">THE RING IS CLOSING</div>
     </div>
 
@@ -135,6 +194,19 @@
     </div>
 
     <div id="foot">HOLD TO SLIDE · MOMENTUM IS EVERYTHING · <span style="color:rgba(255,255,255,.5)">SPACE</span> NEXT ROUND · <span style="color:rgba(255,255,255,.5)">P</span> PAUSE · <span style="color:rgba(255,255,255,.5)">R</span> RESTART</div>
+    <div id="menu">
+      <div class="mTop">
+        <div id="mKanji">相撲</div>
+        <div id="mTitle">SUMO</div>
+        <div id="mSub"><span>DOJO BOUT</span></div>
+      </div>
+      <div class="mBot">
+        <div id="mRows"></div>
+        <div id="mStart"><span>PRESS SPACE TO BEGIN</span></div>
+        <div id="mFoot">↑↓ SELECT · ←→ CHANGE · BLUE W A S D · RED ↑ ← ↓ → · P PAUSE · ESC MENU</div>
+      </div>
+    </div>
+
     <div id="paused">PAUSED</div>
   </div>
   <div id="err"></div>
@@ -320,7 +392,8 @@ uniform vec3 uCam;
 uniform vec3 uAlbedo, uEmis;
 uniform float uSpec, uShin, uRim, uAlpha, uPool, uRecv, uFog, uGrid;
 uniform vec3 uKeyDir, uKeyCol, uFillDir, uFillCol, uBackDir, uBackCol, uSkyCol, uGndCol;
-uniform vec3 uFogCol;
+uniform vec3 uFogCol, uPoolCfg;   // uPoolCfg = (start radius, end radius, depth)
+uniform vec2 uFogRange;           // (distance where fog starts, span)
 uniform mat4 uLightVP;
 uniform sampler2D uShadow;
 
@@ -349,9 +422,10 @@ void main(){
 
   vec3 alb = uAlbedo;
 
-  // the dojo floor falls away from the pool of light over the dohyo
+  // the ground falls away from the pool of light over the dohyo; each venue
+  // sets its own falloff, from a soft dojo wash to a hard arena spotlight
   if (uPool > 0.5){
-    alb *= 1.0 - 0.56 * smoothstep(2.5, 13.0, length(vW.xz));
+    alb *= 1.0 - uPoolCfg.z * smoothstep(uPoolCfg.x, uPoolCfg.y, length(vW.xz));
   }
 
   // procedural set surfaces — a whole shoji wall or plank floor in one draw
@@ -367,12 +441,18 @@ void main(){
       float plank = floor(vW.x / 0.92);
       float tone = 0.86 + 0.24 * fract(sin(plank * 78.233) * 43758.5453);
       alb *= tone * mix(0.34, 1.0, smoothstep(0.006, 0.036, gridDist(vW.x, 0.92)));
-    } else {
+    } else if (uGrid < 3.5){
       // tatami: 2:1 mats bound with dark cloth edging
       float b = min(smoothstep(0.03, 0.075, gridDist(vW.x, 1.86)),
                     smoothstep(0.03, 0.075, gridDist(vW.z, 0.93)));
       float weave = 0.94 + 0.06 * sin(vW.z * 92.0);
       alb *= weave * mix(0.26, 1.0, b);
+    } else {
+      // raked gravel: concentric rake lines swept around the ring, plus grit
+      float rake = smoothstep(0.015, 0.075, gridDist(length(vW.xz), 0.44));
+      float grit = 0.90 + 0.20 * fract(sin(dot(floor(vW.xz * 2.6),
+                                              vec2(12.9898, 78.233))) * 43758.5453);
+      alb *= grit * mix(0.70, 1.0, rake);
     }
   }
 
@@ -392,7 +472,7 @@ void main(){
   col += uEmis;
 
   float d = length(uCam - vW);
-  col = mix(col, uFogCol, clamp((d - 24.0) / 46.0, 0.0, 1.0) * uFog);
+  col = mix(col, uFogCol, clamp((d - uFogRange.x) / uFogRange.y, 0.0, 1.0) * uFog);
 
   fragColor = vec4(col, uAlpha);
 }`;
@@ -632,6 +712,7 @@ const MESH = {
   disc:     buildDisc(64, 1),
   ring:     buildAnnulus(64, 0.955),
   band:     buildAnnulus(72, 0.875),
+  tier:     buildAnnulus(80, 0.79),
   shock:    buildAnnulus(48, 0.72),
   torus:    buildTorus(72, 14, 0.017),
   belt:     buildTorus(28, 12, 0.16),
@@ -733,6 +814,30 @@ const MAT = {
   basket:  { albedo: srgb("#9d7a42"), spec: 0.12, shin: 30,  rim: 0.04, fog: 1 },
   salt:    { albedo: srgb("#e8e4da"), spec: 0.10, shin: 30,  rim: 0.03, fog: 1 },
   bamboo:  { albedo: srgb("#9a8a4e"), spec: 0.22, shin: 46,  rim: 0.05, fog: 1 },
+  water:   { albedo: srgb("#243434"), spec: 0.72, shin: 150, rim: 0.10, fog: 1 },
+
+  // ── shrine grounds ──
+  gravel:  { albedo: srgb("#5c5a55"), spec: 0.06, shin: 22,  rim: 0.02, fog: 1 },
+  stone:   { albedo: srgb("#6e6d69"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1 },
+  stoneLt: { albedo: srgb("#8b8983"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1 },
+  vermil:  { albedo: srgb("#b0352a"), spec: 0.26, shin: 48,  rim: 0.08, fog: 1 },
+  shide:   { albedo: srgb("#e6e2d8"), spec: 0.10, shin: 30,  rim: 0.06, fog: 1 },
+  petal:   { albedo: srgb("#d9a7b0"), spec: 0.08, shin: 26,  rim: 0.04, fog: 1 },
+  rope:    { albedo: srgb("#a89566"), spec: 0.10, shin: 26,  rim: 0.04, fog: 1 },
+
+  // ── grand arena ──
+  arenaFl: { albedo: srgb("#26262c"), spec: 0.42, shin: 84,  rim: 0.03, fog: 1 },
+  masu:    { albedo: srgb("#544e33"), spec: 0.06, shin: 22,  rim: 0.02, fog: 1 },
+  tierWall:{ albedo: srgb("#191a20"), spec: 0.18, shin: 44,  rim: 0.04, fog: 1 },
+
+  // ── bamboo grove ──
+  moss:    { albedo: srgb("#4f5c38"), spec: 0.10, shin: 28,  rim: 0.03, fog: 1 },
+  mossDk:  { albedo: srgb("#3d4a2b"), spec: 0.09, shin: 26,  rim: 0.03, fog: 1 },
+  culmA:   { albedo: srgb("#7c8f4c"), spec: 0.26, shin: 52,  rim: 0.10, fog: 1 },
+  culmB:   { albedo: srgb("#96a55a"), spec: 0.26, shin: 52,  rim: 0.10, fog: 1 },
+  culmC:   { albedo: srgb("#63763f"), spec: 0.24, shin: 48,  rim: 0.09, fog: 1 },
+  litter:  { albedo: srgb("#6d5f3a"), spec: 0.08, shin: 24,  rim: 0.03, fog: 1 },
+  flagst:  { albedo: srgb("#5e6058"), spec: 0.16, shin: 40,  rim: 0.04, fog: 1 },
   hair:    { albedo: srgb("#241c22"), spec: 0.55, shin: 90,  rim: 0.14, fog: 0 },
   eye:     { albedo: srgb("#0a0b10"), spec: 0.85, shin: 160, rim: 0.10, fog: 0 },
   paper:   { albedo: [0,0,0], spec: 0, shin: 1, rim: 0, emis: [2.35, 1.52, 0.78], fog: 0 },
@@ -765,18 +870,54 @@ const CFG = {
   roundsToWin: 5,
 };
 
+/* Surface grip, overwritten per venue. Friction is a per-frame velocity
+   multiplier, so a HIGHER number means longer slides. */
+const SURF = { fric: CFG.fric };
+
+/* ── the roster ──
+   Bodies differ in mass, reach, acceleration and grip. Terminal speed works out
+   to accel/(1-fric), so the light one both accelerates and slides further. */
+const CHARS = [
+  { name: "IWA",     kanji: "岩", mass: 1.34, accel: 0.86, hitR: 0.84,
+    scale: 1.96, fricAdj: -0.0035 },
+  { name: "ARASHI",  kanji: "嵐", mass: 1.00, accel: 1.00, hitR: 0.74,
+    scale: 1.78, fricAdj: 0 },
+  { name: "TSUBAME", kanji: "燕", mass: 0.76, accel: 1.14, hitR: 0.65,
+    scale: 1.60, fricAdj: 0.0035 },
+];
+
+/* ── AI tiers ──
+   Difficulty is decision quality, never extra speed or force: both fighters stay
+   physically identical, so a win never feels stolen. `react` is how many frames
+   stale its picture of you is, `predict` how far ahead it extrapolates, `edge`
+   the fraction of the radius at which it flees the rim, and `bait` how often it
+   sidesteps a charge to let you sail off on your own momentum. */
+const AI_TIERS = [
+  { name: "RIKISHI",  kanji: "力士", react: 16, predict: 0,  edge: 0.86,
+    jitter: 0.22, every: 8, bait: 0.00 },
+  { name: "SEKIWAKE", kanji: "関脇", react: 14, predict: 5,  edge: 0.71,
+    jitter: 0.19, every: 6, bait: 0.20 },
+  { name: "YOKOZUNA", kanji: "横綱", react: 3,  predict: 30, edge: 0.47,
+    jitter: 0.03, every: 2, bait: 0.85 },
+];
+
+const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
+const AI = { on: false, tier: 1, hist: [], t: 0, dir: [0, 0] };
+
 /* ═════════════════════════════ STATE ═════════════════════════════ */
 
 const G = {
   state: "countdown", stateT: 0, cd: 0, round: 1,
   radius: CFG.R0, roundT: 0, freeze: 0, pending: [],
-  shake: 0, flash: 0, time: 0, winner: null, paused: false, hitCool: 0,
+  shake: 0, flash: 0, time: 0, winner: null, paused: false, hitCool: 0, map: 0,
   camTarget: [0, 0], camShake: [0, 0, 0],
 };
 
 function makeFighter(i) {
   return {
     team: TEAM[i], idx: i,
+    char: CHARS[1], mass: 1, hitR: CFG.hitR,   // ── body, set by applyChars ──
+    accel: CFG.accel, fricAdj: 0, scale: CFG.rigScale,
     x: 0, z: 0, vx: 0, vz: 0,           // ── 2D physics state ──
     y: 0, vy: 0,                        // ── render / fall only ──
     alive: true, falling: false, landed: false, fallT: 0,
@@ -799,7 +940,16 @@ const BLOCKED = new Set(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"]
 window.addEventListener("keydown", e => {
   if (BLOCKED.has(e.code)) e.preventDefault();
   if (!e.repeat) {
-    if (e.code === "KeyR") newMatch();
+    if (G.state === "menu") {
+      // either player can drive the menu; R and P stay inert so they can't skip it
+      if (e.code === "Space" || e.code === "Enter") beginMatch();
+      else if (e.code === "ArrowUp"   || e.code === "KeyW") menuMove(-1);
+      else if (e.code === "ArrowDown" || e.code === "KeyS") menuMove(1);
+      else if (e.code === "ArrowLeft" || e.code === "KeyA") menuChange(-1);
+      else if (e.code === "ArrowRight"|| e.code === "KeyD") menuChange(1);
+    }
+    else if (e.code === "Escape") showMenu();
+    else if (e.code === "KeyR") newMatch();
     else if (e.code === "KeyP") {
       G.paused = !G.paused;
       HUD.pause.classList.toggle("on", G.paused);
@@ -880,6 +1030,11 @@ const HUD = {
   bSub: document.getElementById("bSub"),
   bHint: document.getElementById("bHint"),
   pause: document.getElementById("paused"),
+  menu: document.getElementById("menu"),
+  hud: document.getElementById("hud"),
+  venue: document.getElementById("venue"),
+  tag: [document.getElementById("tag1"), document.getElementById("tag2")],
+  rows: document.getElementById("mRows"),
 };
 
 for (let i = 0; i < 2; i++) {
@@ -908,6 +1063,102 @@ function showCount(txt, isGo) {
   HUD.count.classList.add("show");
 }
 
+/* ── menu options ──
+   Rows are rebuilt on every change so DIFFICULTY can appear and disappear with
+   the mode without any index bookkeeping. */
+function menuRows() {
+  const rows = [
+    { lbl: "MODE", val: MENU.mode ? "VS AI" : "2 PLAYER",
+      note: MENU.mode ? "one keyboard, one human" : "share the keyboard",
+      get: () => MENU.mode, set: v => MENU.mode = (v + 2) % 2, n: 2 },
+  ];
+  if (MENU.mode === 1) {
+    const T = AI_TIERS[MENU.diff];
+    rows.push({ lbl: "DIFFICULTY", val: T.kanji + "  " + T.name,
+      note: ["overcommits, falls out", "trades blows, makes errors",
+             "baits you off the edge"][MENU.diff],
+      get: () => MENU.diff, set: v => MENU.diff = (v + 3) % 3, n: 3 });
+  }
+  for (let i = 0; i < 2; i++) {
+    const c = CHARS[MENU.chars[i]];
+    rows.push({ lbl: i ? "RED" : "BLUE", cls: i ? "p2" : "p1",
+      val: c.kanji + "  " + c.name,
+      note: ["heavy · slow · immovable", "even in every way",
+             "light · quick · skittish"][MENU.chars[i]],
+      get: () => MENU.chars[i], set: v => MENU.chars[i] = (v + 3) % 3, n: 3 });
+  }
+  return rows;
+}
+
+function renderMenu() {
+  const rows = menuRows();
+  if (MENU.row >= rows.length) MENU.row = rows.length - 1;
+  HUD.rows.textContent = "";
+  rows.forEach((r, i) => {
+    const el = document.createElement("div");
+    el.className = "oRow" + (i === MENU.row ? " sel" : "");
+    const lbl = document.createElement("div");
+    lbl.className = "oLbl"; lbl.textContent = r.lbl;
+    const l = document.createElement("div");
+    l.className = "oChev"; l.textContent = "‹";
+    const v = document.createElement("div");
+    v.className = "oVal" + (r.cls ? " " + r.cls : ""); v.textContent = r.val;
+    const rt = document.createElement("div");
+    rt.className = "oChev"; rt.textContent = "›";
+    const note = document.createElement("div");
+    note.className = "oNote"; note.textContent = r.note;
+    el.append(lbl, l, v, rt, note);
+    HUD.rows.append(el);
+  });
+}
+
+function menuMove(d) {
+  const n = menuRows().length;
+  MENU.row = (MENU.row + d + n) % n;
+  renderMenu();
+}
+function menuChange(d) {
+  const r = menuRows()[MENU.row];
+  r.set(r.get() + d);
+  applyChars();                    // preview the bodies behind the menu
+  renderMenu();
+}
+
+function applyChars() {
+  for (let i = 0; i < 2; i++) {
+    const f = F[i], c = CHARS[MENU.chars[i]];
+    f.char = c; f.mass = c.mass; f.hitR = c.hitR;
+    f.accel = CFG.accel * c.accel; f.fricAdj = c.fricAdj; f.scale = c.scale;
+  }
+  // name plates: character, and who's driving red
+  HUD.tag[0].textContent = CHARS[MENU.chars[0]].kanji + " " + CHARS[MENU.chars[0]].name;
+  HUD.tag[1].textContent = CHARS[MENU.chars[1]].kanji + " " + CHARS[MENU.chars[1]].name +
+    (MENU.mode === 1 ? "  ·  " + AI_TIERS[MENU.diff].name : "");
+}
+
+// The menu holds the bout but leaves the dojo live behind it — fighters squared
+// up on their marks and breathing, lamps lit, dust drifting.
+function showMenu() {
+  for (const f of F) f.score = 0;
+  G.round = 1; G.winner = null;
+  syncHUD();
+  startRound();
+  G.state = "menu";
+  G.paused = false;
+  HUD.pause.classList.remove("on");
+  HUD.count.classList.remove("show");
+  HUD.menu.classList.add("on");
+  HUD.hud.classList.add("menu");
+  MENU.row = 0;
+  renderMenu();
+}
+
+function beginMatch() {
+  HUD.menu.classList.remove("on");
+  HUD.hud.classList.remove("menu");
+  newMatch();
+}
+
 function newMatch() {
   for (const f of F) f.score = 0;
   G.round = 1; G.winner = null;
@@ -920,6 +1171,11 @@ function startRound() {
   // 222 = three 60-frame beats (3, 2, 1) plus 42 frames of GO!. Any higher and
   // ceil() briefly shows a "4" on the first frames.
   G.state = "countdown"; G.cd = 222; lastCd = -1;
+  applyMap(G.round - 1);          // venues rotate one per round
+  applyChars();
+  AI.on = MENU.mode === 1; AI.tier = MENU.diff;
+  AI.hist.length = 0; AI.t = 0; AI.dir = [0, 0];
+  for (const c of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) KEYS[c] = false;
   G.radius = CFG.R0; G.roundT = 0; G.freeze = 0; G.hitCool = 0; G.pending.length = 0;
   parts.length = 0; rings.length = 0;
   G.camTarget[0] = 0; G.camTarget[1] = 0;
@@ -990,8 +1246,8 @@ function drive(f) {
 
   if (ix || iz) {
     const m = Math.hypot(ix, iz); ix /= m; iz /= m;
-    f.vx += ix * CFG.accel;
-    f.vz += iz * CFG.accel;
+    f.vx += ix * f.accel;
+    f.vz += iz * f.accel;
     f.leanX = lerp(f.leanX, ix, 0.16);
     f.leanZ = lerp(f.leanZ, iz, 0.16);
   } else {
@@ -999,7 +1255,8 @@ function drive(f) {
     f.leanZ = lerp(f.leanZ, 0, 0.10);
   }
 
-  f.vx *= CFG.fric; f.vz *= CFG.fric;
+  const fric = SURF.fric + f.fricAdj;      // venue surface + this body's grip
+  f.vx *= fric; f.vz *= fric;
   f.x += f.vx; f.z += f.vz;
 
   const sp = Math.hypot(f.vx, f.vz);
@@ -1014,23 +1271,68 @@ function drive(f) {
   }
 }
 
+/* The AI drives player 2 by writing the same KEYS a human presses, so it runs
+   through the identical input path and physics — no special-casing anywhere. */
+function aiStep() {
+  const me = F[1], you = F[0], T = AI_TIERS[AI.tier], k = CTRL[1];
+
+  AI.hist.push({ x: you.x, z: you.z, vx: you.vx, vz: you.vz });
+  if (AI.hist.length > 48) AI.hist.shift();
+
+  if (--AI.t <= 0) {
+    AI.t = T.every;
+    // a deliberately stale picture of the opponent, then extrapolated forward
+    const h = AI.hist[Math.max(0, AI.hist.length - 1 - T.react)];
+    let dx = (h.x + h.vx * T.predict) - me.x;
+    let dz = (h.z + h.vz * T.predict) - me.z;
+
+    const rMe = Math.hypot(me.x, me.z);
+    if (rMe > T.edge * G.radius) {
+      dx = -me.x; dz = -me.z;                   // get off the rim
+    } else {
+      // bait: if they're charging in, step aside and let momentum do the work
+      const away = Math.hypot(me.x - h.x, me.z - h.z) || 1;
+      const closing = (h.vx * (me.x - h.x) + h.vz * (me.z - h.z)) / away;
+      if (closing > 0.075 && Math.random() < T.bait) {
+        const s = Math.hypot(h.vx, h.vz) || 1;
+        let px = -h.vz / s, pz = h.vx / s;
+        if (px * me.x + pz * me.z > 0) { px = -px; pz = -pz; }   // sidestep inward
+        dx = px; dz = pz;
+      }
+    }
+    if (Math.random() < T.jitter) { dx += (Math.random() - 0.5) * 9;
+                                    dz += (Math.random() - 0.5) * 9; }
+    const l = Math.hypot(dx, dz) || 1;
+    AI.dir = [dx / l, dz / l];
+  }
+
+  const [dx, dz] = AI.dir;
+  KEYS[k.right] = dx >  0.34; KEYS[k.left] = dx < -0.34;
+  KEYS[k.down]  = dz >  0.34; KEYS[k.up]   = dz < -0.34;
+}
+
 function collide(a, b) {
   const dx = b.x - a.x, dz = b.z - a.z;
   let d = Math.hypot(dx, dz);
   if (d < 1e-5) d = 1e-5;
-  const minD = CFG.hitR * 2;
+  const minD = a.hitR + b.hitR;
   if (d >= minD) return;
 
+  // Mass-weighted resolution. With equal unit masses this reduces exactly to the
+  // old even split, so identical bodies behave exactly as before.
+  const ia = 1 / a.mass, ib = 1 / b.mass, isum = ia + ib;
   const nx = dx / d, nz = dz / d;
-  const push = (minD - d) / 2 + 0.001;
-  a.x -= nx * push; a.z -= nz * push;
-  b.x += nx * push; b.z += nz * push;
+  const over = minD - d + 0.002;
+  a.x -= nx * over * (ia / isum); a.z -= nz * over * (ia / isum);
+  b.x += nx * over * (ib / isum); b.z += nz * over * (ib / isum);
 
   const rvn = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
   const impact = Math.max(0, -rvn);
-  const j = (-(1 + CFG.rest) * Math.min(rvn, 0)) / 2 + CFG.basePush;
+  // j is an impulse now; each fighter's velocity change is j * (1 / mass)
+  const j = (-(1 + CFG.rest) * Math.min(rvn, 0)) / isum + CFG.basePush * 2 / isum;
+  const ja = j * ia, jb = j * ib;
 
-  const cx = a.x + nx * CFG.hitR, cz = a.z + nz * CFG.hitR;
+  const cx = a.x + nx * a.hitR, cz = a.z + nz * a.hitR;
   const cy = CFG.deck + 0.62;
 
   // A hard hit only counts if we're off cooldown — otherwise two fighters
@@ -1039,8 +1341,8 @@ function collide(a, b) {
     // ── HARD HIT: hitstop first, knockback lands after ──
     G.freeze = CFG.freezeFrames;
     G.hitCool = 12;
-    G.pending.push({ f: a, dvx: -j * nx, dvz: -j * nz },
-                   { f: b, dvx:  j * nx, dvz:  j * nz });
+    G.pending.push({ f: a, dvx: -ja * nx, dvz: -ja * nz },
+                   { f: b, dvx:  jb * nx, dvz:  jb * nz });
     a.hitFlash = 6; b.hitFlash = 6;
     a.squash = b.squash = 1;
     a.thrust = b.thrust = 1;
@@ -1053,8 +1355,8 @@ function collide(a, b) {
     dust(cx, CFG.deck + 0.04, cz, 10, 0.024);
     shock(cx, CFG.deck + 0.012, cz, 1.1 + k * 0.55, [1, 0.94, 0.82], 1);
   } else {
-    a.vx -= j * nx; a.vz -= j * nz;
-    b.vx += j * nx; b.vz += j * nz;
+    a.vx -= ja * nx; a.vz -= ja * nz;
+    b.vx += jb * nx; b.vz += jb * nz;
     if (impact > 0.024) {
       burst(cx, cy, cz, 6, 0.05, [[1,1,1], a.team.glow, b.team.glow], { size: 0.055, glow: 1.2 });
       G.shake = Math.min(0.42, G.shake + 0.012 * (impact / CFG.hardHit));
@@ -1178,6 +1480,12 @@ function step() {
   G.camShake[1] = (Math.random() - 0.5) * s * 0.55;
   G.camShake[2] = (Math.random() - 0.5) * s * 0.35;
 
+  // ── menu: no bout, just a gentle idle ──
+  if (G.state === "menu") {
+    for (const f of F) f.step += 0.012;
+    return;
+  }
+
   // ── countdown: fighters frozen ──
   if (G.state === "countdown") {
     G.cd--;
@@ -1196,9 +1504,10 @@ function step() {
 
   if (G.state === "roundEnd" || G.state === "matchEnd") {
     for (const f of F) if (!f.falling) {          // survivor keeps coasting to a stop
-      f.vx *= CFG.fric; f.vz *= CFG.fric;
+      const fr = SURF.fric + f.fricAdj;
+      f.vx *= fr; f.vz *= fr;
       const nx = f.x + f.vx, nz = f.z + f.vz;
-      if (Math.hypot(nx, nz) < G.radius - CFG.hitR) { f.x = nx; f.z = nz; }
+      if (Math.hypot(nx, nz) < G.radius - f.hitR) { f.x = nx; f.z = nz; }
       else { f.vx *= 0.55; f.vz *= 0.55; }
     }
     return;
@@ -1222,6 +1531,7 @@ function step() {
     }
   }
 
+  if (AI.on && F[1].alive && F[0].alive) aiStep();
   for (const f of F) if (f.alive) drive(f);
   if (F[0].alive && F[1].alive) collide(F[0], F[1]);
 
@@ -1239,12 +1549,13 @@ function step() {
 const KEY_DIR  = V3.norm([-0.48, 0.80,  0.38]);
 const FILL_DIR = V3.norm([ 0.72, 0.42,  0.36]);
 const BACK_DIR = V3.norm([ 0.10, 0.34, -0.94]);
-const KEY_COL  = [1.02, 0.96, 0.85];      // warm key…
-const FILL_COL = [0.24, 0.30, 0.46];      // …against a cool fill, for separation
-const BACK_COL = [0.40, 0.42, 0.56];
-const SKY_COL  = [0.26, 0.29, 0.36];
-const GND_COL  = [0.055, 0.058, 0.070];
-const FOG_COL  = [0.040, 0.031, 0.024];   // dim timber depths of the hall
+// Live lighting environment — overwritten per venue by applyMap(). Only colours
+// and grade vary; KEY_DIR is fixed so shadows stay consistent everywhere.
+const ENV = {
+  key: [1.02, 0.96, 0.85], fill: [0.24, 0.30, 0.46], back: [0.40, 0.42, 0.56],
+  sky: [0.26, 0.29, 0.36], gnd: [0.055, 0.058, 0.070], fog: [0.040, 0.031, 0.024],
+  fogRange: [24, 46], pool: [2.5, 13.0, 0.56], exposure: 1.14, bloom: 0.58,
+};
 
 const lightVP = (() => {
   const d = 22, ext = 9.5;
@@ -1362,6 +1673,224 @@ function dojo() {
   push(MESH.box, M4.trs(-6.55, 0.05, -2.65, 0, 0.42, 0, 0.62, 0.06, 0.30), MAT.bamboo);
 }
 
+/* ═══════════════════ VENUE 2 — SHRINE GROUNDS (奉納) ═══════════════════ */
+
+/* Scatter tables are built ONCE at load. The draw list is rebuilt every frame,
+   so calling Math.random() inside a builder would make the props jitter. */
+const scatter = (() => { let s = 20260728;
+  return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; })();
+
+const PETALS = Array.from({ length: 56 }, () => {
+  const a = scatter() * 6.2832, r = 5.1 + scatter() * 7.0;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
+           ry: scatter() * 3.14, s: 0.13 + scatter() * 0.12 };
+});
+
+// ishidoro — a stone lantern; the fire box is emissive so it blooms at night
+function ishidoro(x, z) {
+  push(MESH.cyl, M4.trs(x, 0.09, z, 0, 0, 0, 0.88, 0.18, 0.88), MAT.stone);
+  push(MESH.cyl, M4.trs(x, 0.42, z, 0, 0, 0, 0.34, 0.50, 0.34), MAT.stone);
+  push(MESH.cyl, M4.trs(x, 0.75, z, 0, 0, 0, 0.80, 0.16, 0.80), MAT.stoneLt);
+  push(MESH.box, M4.trs(x, 1.01, z, 0, 0, 0, 0.54, 0.42, 0.54), MAT.paper,
+       { cast: false, recv: false });
+  push(MESH.box, M4.trs(x, 1.29, z, 0, 0.785, 0, 1.00, 0.20, 1.00), MAT.stoneLt);
+  push(MESH.sphereLo, M4.trs(x, 1.46, z, 0, 0, 0, 0.21, 0.25, 0.21), MAT.stoneLt);
+}
+
+function shrine() {
+  // raked gravel courtyard
+  push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.gravel,
+       { cast: false, pool: true, grid: 4 });
+
+  // tamagaki — the low stone post fence enclosing the grounds
+  for (let i = -6; i <= 6; i++)
+    push(MESH.box, M4.trs(i * 1.55, 0.42, -9.5, 0, 0, 0, 0.26, 0.84, 0.26),
+         MAT.stone, { cast: false });
+  push(MESH.box, M4.trs(0, 0.80, -9.5, 0, 0, 0, 19.4, 0.15, 0.36), MAT.stoneLt,
+       { cast: false });
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 4; i++)
+      push(MESH.box, M4.trs(sx * 9.5, 0.42, -8.0 + i * 1.55, 0, 0, 0, 0.26, 0.84, 0.26),
+           MAT.stone, { cast: false });
+    push(MESH.box, M4.trs(sx * 9.5, 0.80, -5.7, 0, 0, 0, 0.36, 0.15, 5.4), MAT.stoneLt,
+         { cast: false });
+  }
+
+  // A torii can't read here — at this pitch only its bottom ~1.9u is in frame.
+  // Low shrine cues work instead: the stone approach steps and a pair of komainu.
+  for (let i = 0; i < 4; i++)
+    push(MESH.box, M4.trs(0, 0.10 + i * 0.19, -10.1 - i * 0.62, 0, 0, 0,
+         7.4 - i * 0.5, 0.20 + i * 0.19, 0.62), MAT.stoneLt, { cast: false });
+
+  for (const sx of [-1, 1]) {
+    const x = sx * 5.7, z = -7.7;
+    push(MESH.box, M4.trs(x, 0.30, z, 0, 0, 0, 1.00, 0.60, 1.00), MAT.stone,
+         { cast: false });                                        // plinth
+    push(MESH.sphere, M4.trs(x, 0.86, z, -0.16, 0, 0, 0.62, 0.66, 0.92), MAT.stoneLt,
+         { cast: false });                                        // haunches
+    push(MESH.sphere, M4.trs(x, 1.24, z - 0.24, 0, 0, 0, 0.52, 0.50, 0.50), MAT.stoneLt,
+         { cast: false });                                        // head
+    push(MESH.sphereLo, M4.trs(x - sx * 0.16, 1.42, z - 0.30, 0, 0, 0, 0.20, 0.22, 0.20),
+         MAT.stoneLt, { cast: false });                           // ear
+    push(MESH.sphereLo, M4.trs(x + sx * 0.16, 1.42, z - 0.30, 0, 0, 0, 0.20, 0.22, 0.20),
+         MAT.stoneLt, { cast: false });
+    push(MESH.box, M4.trs(x, 0.72, z - 0.56, 0.30, 0, 0, 0.46, 0.16, 0.62), MAT.stoneLt,
+         { cast: false });                                        // forelegs
+  }
+
+  // shimenawa strung between two vermillion posts, with hanging shide
+  for (const sx of [-1, 1])
+    push(MESH.cyl, M4.trs(sx * 7.0, 1.05, -8.6, 0, 0, 0, 0.34, 2.10, 0.34), MAT.vermil,
+         { cast: false });
+  push(MESH.box, M4.trs(0, 1.86, -8.6, 0, 0, 0, 14.0, 0.20, 0.20), MAT.rope,
+       { cast: false });
+  for (let k = -4; k <= 4; k++)
+    push(MESH.box, M4.trs(k * 1.5, 1.50, -8.58, 0, 0, 0, 0.20, 0.52, 0.03), MAT.shide,
+         { cast: false });
+
+  ishidoro(-7.5, -5.8); ishidoro(7.5, -5.8);
+  ishidoro(-8.1, 2.6);  ishidoro(8.1, 2.6);
+
+  for (const p of PETALS)
+    push(MESH.box, M4.trs(p.x, 0.012, p.z, 0, p.ry, 0, p.s, 0.016, p.s * 0.62),
+         MAT.petal, { cast: false });
+}
+
+/* ═══════════════════ VENUE 3 — GRAND ARENA (国技館) ═══════════════════ */
+
+const TIERS = [[9.6, 0.42], [12.1, 0.90], [14.6, 1.40]];
+
+const SEATS = (() => {
+  const out = [];
+  for (let t = 0; t < TIERS.length; t++) {
+    const [r, h] = TIERS[t], n = 12 + t * 5;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * 6.2832 + t * 0.24;
+      const rr = r * 0.90;
+      out.push({ x: Math.cos(a) * rr, z: Math.sin(a) * rr, y: h + 0.055,
+                 ry: -a, c: (i + t) % 2 });
+    }
+  }
+  return out;
+})();
+
+function arena() {
+  push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.arenaFl,
+       { cast: false, pool: true });
+
+  // masu-seki — concentric tiers of tatami box seats. The risers are drawn with
+  // front-face culling so we see the inside of the bowl and the near wall never
+  // blocks the ring.
+  // The tiers take the pool falloff too, so the seating recedes into the dark
+  // instead of out-glowing the ring.
+  for (const [r, h] of TIERS) {
+    const inner = r * 0.79;
+    push(MESH.cylOpen, M4.trs(0, h / 2, 0, 0, 0, 0, inner * 2, h, inner * 2),
+         MAT.tierWall, { cast: false, cull: gl.FRONT, pool: true });
+    push(MESH.tier, M4.trs(0, h, 0, 0, 0, 0, r * 2, 1, r * 2), MAT.masu,
+         { cast: false, grid: 3, pool: true });
+  }
+  for (const s of SEATS)
+    push(MESH.box, M4.trs(s.x, s.y, s.z, 0, s.ry, 0, 0.74, 0.10, 0.74),
+         s.c ? MAT.cushionB : MAT.cushionA, { cast: false, pool: true });
+}
+
+/* ═══════════════════ VENUE 4 — BAMBOO GROVE (竹林) ═══════════════════ */
+
+const BAMBOO = Array.from({ length: 30 }, (_, i) => {
+  const a = (i / 30) * 6.2832 + (scatter() - 0.5) * 0.20;
+  const r = 8.3 + scatter() * 4.4;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
+           h: 9 + scatter() * 5.5, rad: 0.21 + scatter() * 0.12,
+           lx: (scatter() - 0.5) * 0.11, lz: (scatter() - 0.5) * 0.11,
+           m: (scatter() * 3) | 0 };
+});
+
+const LITTER = Array.from({ length: 42 }, () => {
+  const a = scatter() * 6.2832, r = 4.9 + scatter() * 7.4;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
+           ry: scatter() * 3.14, s: 0.15 + scatter() * 0.17 };
+});
+
+// darker moss clumps, so the forest floor isn't a flat wash
+const MOSS = Array.from({ length: 26 }, () => {
+  const a = scatter() * 6.2832, r = 4.7 + scatter() * 8.0;
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r,
+           ry: scatter() * 3.14, s: 1.1 + scatter() * 1.6 };
+});
+
+function grove() {
+  push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.moss,
+       { cast: false, pool: true });
+
+  for (const b of BAMBOO) {
+    const m = b.m === 0 ? MAT.culmA : b.m === 1 ? MAT.culmB : MAT.culmC;
+    push(MESH.cyl, M4.trs(b.x, b.h / 2, b.z, b.lx, 0, b.lz, b.rad, b.h, b.rad), m,
+         { cast: false });
+  }
+  for (const m of MOSS)
+    push(MESH.disc, M4.trs(m.x, 0.008, m.z, 0, m.ry, 0, m.s, 1, m.s * 0.75),
+         MAT.mossDk, { cast: false, pool: true });
+  for (const l of LITTER)
+    push(MESH.box, M4.trs(l.x, 0.014, l.z, 0, l.ry, 0, l.s, 0.018, l.s * 0.6),
+         MAT.litter, { cast: false });
+
+  // stepping stones leading away from the ring
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6;
+    const x = lerp(-2.6, -7.8, t) + Math.sin(t * 4.2) * 0.42;
+    const z = lerp(6.8, 2.4, t);
+    push(MESH.box, M4.trs(x, 0.022, z, 0, 0.35 + t, 0, 1.15, 0.05, 0.88),
+         MAT.flagst, { cast: false });
+  }
+
+  // tsukubai — stone water basin with a bamboo spout
+  push(MESH.cyl, M4.trs(7.1, 0.24, 3.1, 0, 0, 0, 1.15, 0.48, 1.15), MAT.stone);
+  push(MESH.cyl, M4.trs(7.1, 0.475, 3.1, 0, 0, 0, 0.90, 0.05, 0.90), MAT.water,
+       { cast: false });
+  push(MESH.box, M4.trs(8.05, 0.64, 3.6, 0, -0.6, 0.55, 0.10, 0.10, 1.55), MAT.bamboo);
+}
+
+/* ═════════════════════════════ VENUE ROTATION ═════════════════════════════ */
+
+const MAPS = [
+  { name: "KEIKO DOJO", kanji: "稽古場", build: dojo,
+    surf: "SWEPT BOARDS", fric: 0.9555, light: {
+      key: [1.02, 0.96, 0.85], fill: [0.24, 0.30, 0.46], back: [0.40, 0.42, 0.56],
+      sky: [0.26, 0.29, 0.36], gnd: [0.055, 0.058, 0.070], fog: [0.040, 0.031, 0.024],
+      fogRange: [24, 46], pool: [2.5, 13.0, 0.56], exposure: 1.14, bloom: 0.58 } },
+
+  { name: "SHRINE GROUNDS", kanji: "奉納", build: shrine,
+    surf: "LOOSE GRAVEL", fric: 0.9605, light: {
+      key: [0.46, 0.55, 0.84], fill: [0.09, 0.12, 0.26], back: [0.18, 0.22, 0.44],
+      sky: [0.09, 0.12, 0.24], gnd: [0.018, 0.020, 0.032], fog: [0.008, 0.012, 0.028],
+      fogRange: [18, 36], pool: [3.0, 12.5, 0.44], exposure: 0.98, bloom: 1.10 } },
+
+  { name: "GRAND ARENA", kanji: "国技館", build: arena,
+    surf: "GRIPPED CLAY", fric: 0.9495, light: {
+      key: [1.34, 1.30, 1.24], fill: [0.15, 0.16, 0.22], back: [0.22, 0.24, 0.32],
+      sky: [0.13, 0.14, 0.17], gnd: [0.018, 0.018, 0.024], fog: [0.010, 0.010, 0.014],
+      fogRange: [18, 38], pool: [6.4, 10.8, 0.87], exposure: 1.02, bloom: 0.52 } },
+
+  // Mist has to start beyond the ring: the dohyo sits 15–20u from the camera, so
+  // fog any closer than that washes out the gameplay area itself.
+  { name: "BAMBOO GROVE", kanji: "竹林", build: grove,
+    surf: "DAMP MOSS", fric: 0.9455, light: {
+      key: [0.96, 1.02, 0.88], fill: [0.26, 0.33, 0.32], back: [0.38, 0.46, 0.42],
+      sky: [0.28, 0.33, 0.30], gnd: [0.070, 0.078, 0.062], fog: [0.30, 0.35, 0.31],
+      fogRange: [19, 34], pool: [4.0, 14.0, 0.34], exposure: 1.06, bloom: 0.60 } },
+];
+
+// The key light DIRECTION never changes between venues, so the shadow map and
+// the way the fighters read stay consistent — only the colours and grade shift.
+function applyMap(i) {
+  G.map = ((i % MAPS.length) + MAPS.length) % MAPS.length;
+  const M = MAPS[G.map], L = M.light;
+  for (const k in L) ENV[k] = L[k];
+  SURF.fric = M.fric;              // each surface slides differently
+  HUD.venue.textContent = M.kanji + " · " + M.name + " · " + M.surf;
+}
+
 /* ---------- the dohyo ---------- */
 
 function dohyo() {
@@ -1437,7 +1966,7 @@ function bodyMats(f) {
 }
 
 function fighter(f) {
-  const S = CFG.rigScale;
+  const S = f.scale;
   const sq = f.squash;
   const groundY = CFG.deck + f.y;
 
@@ -1647,11 +2176,13 @@ function drawScene(proj, view, eye) {
   gl.uniformMatrix4fv(P.u.uProj, false, proj);
   gl.uniformMatrix4fv(P.u.uView, false, view);
   gl.uniform3fv(P.u.uCam, eye);
-  gl.uniform3fv(P.u.uKeyDir, KEY_DIR);   gl.uniform3fv(P.u.uKeyCol, KEY_COL);
-  gl.uniform3fv(P.u.uFillDir, FILL_DIR); gl.uniform3fv(P.u.uFillCol, FILL_COL);
-  gl.uniform3fv(P.u.uBackDir, BACK_DIR); gl.uniform3fv(P.u.uBackCol, BACK_COL);
-  gl.uniform3fv(P.u.uSkyCol, SKY_COL);   gl.uniform3fv(P.u.uGndCol, GND_COL);
-  gl.uniform3fv(P.u.uFogCol, FOG_COL);
+  gl.uniform3fv(P.u.uKeyDir, KEY_DIR);   gl.uniform3fv(P.u.uKeyCol, ENV.key);
+  gl.uniform3fv(P.u.uFillDir, FILL_DIR); gl.uniform3fv(P.u.uFillCol, ENV.fill);
+  gl.uniform3fv(P.u.uBackDir, BACK_DIR); gl.uniform3fv(P.u.uBackCol, ENV.back);
+  gl.uniform3fv(P.u.uSkyCol, ENV.sky);   gl.uniform3fv(P.u.uGndCol, ENV.gnd);
+  gl.uniform3fv(P.u.uFogCol, ENV.fog);
+  gl.uniform3fv(P.u.uPoolCfg, ENV.pool);
+  gl.uniform2fv(P.u.uFogRange, ENV.fogRange);
   gl.uniformMatrix4fv(P.u.uLightVP, false, lightVP);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, shadowTex);
@@ -1753,9 +2284,9 @@ function postChain() {
   gl.uniform1i(POST.u.uScene, 0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bloomA.tex);
   gl.uniform1i(POST.u.uBloom, 1);
-  gl.uniform1f(POST.u.uBloomAmt, 0.58);
+  gl.uniform1f(POST.u.uBloomAmt, ENV.bloom);
   gl.uniform1f(POST.u.uTime, G.time);
-  gl.uniform1f(POST.u.uExposure, 1.14);
+  gl.uniform1f(POST.u.uExposure, ENV.exposure);
   gl.uniform1f(POST.u.uFlash, G.flash);
   blitQuad();
   gl.activeTexture(gl.TEXTURE0);
@@ -1804,7 +2335,7 @@ function camera() {
 
 function render() {
   drawList.length = 0;
-  dojo();
+  MAPS[G.map].build();
   dohyo();
   // draw the far fighter first (helps the additive ghosts read correctly)
   const order = F[0].z <= F[1].z ? [0, 1] : [1, 0];
@@ -1817,7 +2348,7 @@ function render() {
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, sceneRT.fb);
   gl.viewport(0, 0, VW, VH);
-  gl.clearColor(FOG_COL[0], FOG_COL[1], FOG_COL[2], 1);
+  gl.clearColor(ENV.fog[0], ENV.fog[1], ENV.fog[2], 1);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1844,12 +2375,13 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-newMatch();
+showMenu();
 requestAnimationFrame(frame);
 
 // exposed for verification
 window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, endRound, HUD,
-               camera, drawList };
+               camera, drawList, showMenu, beginMatch, MAPS, ENV, applyMap,
+               MENU, AI, AI_TIERS, CHARS, SURF, renderMenu, menuMove, menuChange };
 </script>
 </body>
 </html>
