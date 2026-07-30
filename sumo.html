@@ -100,6 +100,7 @@
   #overlay.on{opacity:1;pointer-events:auto}
   .oPanel{display:flex;flex-direction:column;align-items:center;
     padding:30px 44px 26px;border-radius:14px;
+    max-height:92vh;overflow:auto;
     background:linear-gradient(rgba(26,19,13,.86),rgba(12,9,6,.9));
     border:1px solid rgba(217,184,119,.22);
     box-shadow:0 26px 70px rgba(0,0,0,.6)}
@@ -108,6 +109,60 @@
   .oTitle{margin-top:10px;font-size:38px;font-weight:800;letter-spacing:.14em;
     background:linear-gradient(#fff9ee,#e0bf85);-webkit-background-clip:text;
     background-clip:text;color:transparent}
+  .oBody:empty{display:none}
+  .oBody{display:flex;flex-direction:column;align-items:center;margin-top:16px}
+  /* the cards carry their own content, so their action list sits tighter */
+  .oBody:not(:empty)+.oList{margin-top:18px}
+  /* ---- torikumi (bout card) ---- */
+  .tkDay{font-size:10px;font-weight:800;letter-spacing:.34em;
+    color:rgba(255,255,255,.42)}
+  /* Fixed, equal column widths. With 1fr columns the longer shikona stretched its
+     side and pushed the divider off centre, which is exactly the kind of drift
+     that makes a card look unconsidered. */
+  .tkVs{display:grid;grid-template-columns:215px 1px 215px;align-items:center;
+    gap:26px;margin-top:20px}
+  .tkSide{display:flex;flex-direction:column;gap:7px;min-width:0}
+  .tkSide.r{text-align:right}
+  .tkSide.l{text-align:left}
+  .tkWho{font-size:9px;font-weight:800;letter-spacing:.26em;
+    color:rgba(255,255,255,.32)}
+  .tkName{font-size:17px;font-weight:800;letter-spacing:.08em;color:#fff;
+    white-space:nowrap}
+  .tkName.p1{color:#7fd0ff}
+  .tkName.p2{color:#ffab9e}
+  .tkRank{font-size:9px;font-weight:700;letter-spacing:.2em;color:#d9b877}
+  .tkBar{width:1px;height:56px;
+    background:linear-gradient(transparent,rgba(217,184,119,.5),transparent)}
+  /* ---- record, shown as sumo's white and black stars ---- */
+  .stars{display:flex;gap:11px;margin-top:22px;font-size:15px;line-height:1}
+  .star{color:rgba(255,255,255,.26)}
+  .star.w{color:#f4e8c8}
+  .star.l{color:#a8524a}
+  /* a hairline over the record, to close the card off */
+  .tkRec{position:relative;margin-top:16px;padding-top:15px;font-size:12px;
+    font-weight:800;letter-spacing:.3em;color:rgba(255,255,255,.72)}
+  .tkRec::before{content:"";position:absolute;top:0;left:50%;
+    transform:translateX(-50%);width:120px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(217,184,119,.4),transparent)}
+  /* ---- basho scorecard ---- */
+  .bsBig{font-size:40px;font-weight:800;letter-spacing:.08em;line-height:1;
+    background:linear-gradient(#fff9ee,#e0bf85);-webkit-background-clip:text;
+    background-clip:text;color:transparent}
+  /* 330px matches the action-row width below, so the card has one right edge
+     instead of a table and a button disagreeing about where it is */
+  .bsTable{display:flex;flex-direction:column;gap:2px;margin-top:18px;width:330px}
+  .bsRow{display:grid;grid-template-columns:52px 1fr 18px;align-items:center;
+    gap:12px;padding:5px 14px;border-radius:7px;font-size:11px;font-weight:700;
+    letter-spacing:.14em}
+  .bsRow.w{background:rgba(244,232,200,.07)}
+  .bsRow.l{background:rgba(143,64,56,.10)}
+  .bsDay{font-size:9px;letter-spacing:.2em;color:rgba(255,255,255,.34)}
+  .bsFoe{color:rgba(255,255,255,.8);text-align:left;white-space:nowrap}
+  .bsMark{text-align:center;font-size:13px}
+  .bsVerdict{margin-top:18px;font-size:15px;font-weight:800;letter-spacing:.24em;
+    color:#d9b877}
+  .bsSub{margin-top:7px;font-size:10px;font-weight:700;letter-spacing:.2em;
+    color:rgba(255,255,255,.5)}
   .oList{display:flex;flex-direction:column;gap:3px;margin-top:22px}
   .oRow.act{justify-content:center;min-width:330px}
   .oRow.act .oLbl{width:auto;text-align:center;font-size:12px;letter-spacing:.26em;
@@ -251,6 +306,7 @@
       <div class="oPanel">
         <div class="oKanji" id="ovKanji">中断</div>
         <div class="oTitle" id="ovTitle">PAUSED</div>
+        <div class="oBody" id="ovBody"></div>
         <div class="oList" id="ovRows"></div>
         <div class="oHint" id="ovHint"></div>
       </div>
@@ -1213,6 +1269,30 @@ const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
 /* Settings persist across bouts. map = -1 means the venues rotate one per round,
    which is the default; any other value pins a single venue. */
 const OPT = { map: -1, music: true, rounds: 5 };
+
+/* ── the basho ──
+   A real tournament runs fifteen days, one bout a day, and you fight every day
+   whether you are winning or not — a losing day does not end your basho. That
+   last part is the reason this is five bouts rather than a knockout ladder: the
+   run always lasts five days and what you are playing for is the RECORD.
+   Bouts are first-to-3 instead of first-to-5 so a whole basho fits one sitting.
+   8 wins from 15 is a winning record in real sumo; scaled to five days, a
+   majority is 3. */
+const BASHO_DAYS = 5;
+const RANKS = [
+  { kanji: "前頭", name: "MAEGASHIRA" }, { kanji: "小結", name: "KOMUSUBI" },
+  { kanji: "関脇", name: "SEKIWAKE" },   { kanji: "大関", name: "ŌZEKI" },
+  { kanji: "横綱", name: "YOKOZUNA" },
+];
+// one opponent per day, climbing in rank and in decision quality
+const SCHEDULE = [
+  { kanji: "若嵐",   name: "WAKAARASHI", rank: 0, char: 2, tier: 0 },
+  { kanji: "岩ノ戸", name: "IWANOTO",    rank: 0, char: 0, tier: 0 },
+  { kanji: "黒龍",   name: "KOKURYŪ",    rank: 1, char: 1, tier: 1 },
+  { kanji: "大磐石", name: "DAIBANJAKU", rank: 2, char: 0, tier: 1 },
+  { kanji: "雷電",   name: "RAIDEN",     rank: 4, char: 1, tier: 2 },
+];
+const TOUR = { on: false, day: 0, wins: 0, losses: 0, results: [], rank: 0 };
 // The pause screen and the settings screen are the same overlay in two modes.
 const OV = { mode: null, row: 0, cameFromMenu: false };
 const AI = { on: false, tier: 1, hist: [], t: 0, dir: [0, 0] };
@@ -1273,10 +1353,11 @@ window.addEventListener("keydown", e => {
       else if (e.code === "ArrowRight"|| e.code === "KeyD") menuChange(1);
     }
     else if (e.code === "Escape" || e.code === "KeyP") openOverlay("pause");
-    else if (e.code === "KeyR") newMatch();
+    // R replays the current day; it must never reset the basho record
+    else if (e.code === "KeyR") { if (TOUR.on) tourBeginDay(); else newMatch(); }
     else if (e.code === "Space") {
       if (G.state === "roundEnd" && G.stateT <= 0) startRound();
-      else if (G.state === "matchEnd") newMatch();
+      else if (G.state === "matchEnd") { if (TOUR.on) tourNext(); else newMatch(); }
     }
   }
   KEYS[e.code] = true;
@@ -1778,6 +1859,7 @@ const HUD = {
   overlay: document.getElementById("overlay"),
   ovKanji: document.getElementById("ovKanji"),
   ovTitle: document.getElementById("ovTitle"),
+  ovBody: document.getElementById("ovBody"),
   ovRows: document.getElementById("ovRows"),
   ovHint: document.getElementById("ovHint"),
   menu: document.getElementById("menu"),
@@ -1802,7 +1884,10 @@ function syncHUD(bumpIdx) {
     const el = HUD.s[bumpIdx];
     el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
   }
-  HUD.metaTop.textContent = "ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin;
+  HUD.metaTop.textContent = TOUR.on
+    ? "DAY " + (TOUR.day + 1) + "/" + BASHO_DAYS + " · " + TOUR.wins + "–" + TOUR.losses +
+      " · ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin
+    : "ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin;
 }
 
 let lastCd = -1;
@@ -1816,11 +1901,16 @@ function showCount(txt, isGo) {
 /* ── menu options ──
    Rows are rebuilt on every change so DIFFICULTY can appear and disappear with
    the mode without any index bookkeeping. */
+const MODE_LABEL = ["2 PLAYER", "VS AI", "TOURNAMENT"];
+const MODE_NOTE = ["share the keyboard", "one keyboard, one human",
+                   "five days, one record"];
+const CHAR_NOTE = ["heavy · slow · immovable", "even in every way",
+                   "light · quick · skittish"];
+
 function menuRows() {
   const rows = [
-    { lbl: "MODE", val: MENU.mode ? "VS AI" : "2 PLAYER",
-      note: MENU.mode ? "one keyboard, one human" : "share the keyboard",
-      get: () => MENU.mode, set: v => MENU.mode = (v + 2) % 2, n: 2 },
+    { lbl: "MODE", val: MODE_LABEL[MENU.mode], note: MODE_NOTE[MENU.mode],
+      get: () => MENU.mode, set: v => MENU.mode = (v + 3) % 3, n: 3 },
   ];
   if (MENU.mode === 1) {
     const T = AI_TIERS[MENU.diff];
@@ -1828,12 +1918,15 @@ function menuRows() {
       note: T.kanji + "  " + T.name,        // the rank stays as flavour only
       get: () => MENU.diff, set: v => MENU.diff = (v + 3) % 3, n: 3 });
   }
-  for (let i = 0; i < 2; i++) {
+  /* In a basho the schedule owns the opponent and the difficulty, so only your
+     own fighter is selectable — offering a RED row there would imply a choice
+     that does not exist. */
+  const sides = MENU.mode === 2 ? 1 : 2;
+  for (let i = 0; i < sides; i++) {
     const c = CHARS[MENU.chars[i]];
-    rows.push({ lbl: i ? "RED" : "BLUE", cls: i ? "p2" : "p1",
-      val: c.kanji + "  " + c.name,
-      note: ["heavy · slow · immovable", "even in every way",
-             "light · quick · skittish"][MENU.chars[i]],
+    rows.push({ lbl: MENU.mode === 2 ? "YOUR RIKISHI" : (i ? "RED" : "BLUE"),
+      cls: i ? "p2" : "p1",
+      val: c.kanji + "  " + c.name, note: CHAR_NOTE[MENU.chars[i]],
       get: () => MENU.chars[i], set: v => MENU.chars[i] = (v + 3) % 3, n: 3 });
   }
   return rows;
@@ -1910,12 +2003,133 @@ function rebuildPips() {
 
 const MAP_NAMES = () => ["AUTO · ROTATE"].concat(MAPS.map(m => m.kanji + "  " + m.name));
 
+/* ═════════════════════════════ THE BASHO ═════════════════════════════ */
+
+const el = (cls, txt) => {
+  const d = document.createElement("div");
+  d.className = cls; if (txt !== undefined) d.textContent = txt;
+  return d;
+};
+
+/* The record, drawn the way sumo draws it: a white star for a win, a black one
+   for a loss, and a dim placeholder for a day not yet fought. */
+function starRow(results, total) {
+  const row = el("stars");
+  for (let i = 0; i < total; i++) {
+    const r = results[i];
+    row.append(el("star " + (r === 1 ? "w" : r === 0 ? "l" : ""),
+                  r === undefined ? "·" : r === 1 ? "○" : "●"));
+  }
+  return row;
+}
+
+function tourFoe(day) { return SCHEDULE[clamp(day, 0, SCHEDULE.length - 1)]; }
+
+// torikumi — the bout card shown before each day
+function buildTorikumi(body) {
+  const foe = tourFoe(TOUR.day), me = CHARS[MENU.chars[0]];
+  body.append(el("tkDay", "DAY " + (TOUR.day + 1) + " OF " + BASHO_DAYS));
+  const vs = el("tkVs");
+  const mine = el("tkSide r");
+  mine.append(el("tkWho", "YOU"),
+              el("tkName p1", me.kanji + "  " + me.name),
+              el("tkRank", RANKS[TOUR.rank].kanji + "  " + RANKS[TOUR.rank].name));
+  const theirs = el("tkSide l");
+  theirs.append(el("tkWho", "OPPONENT"),
+                el("tkName p2", foe.kanji + "  " + foe.name),
+                el("tkRank", RANKS[foe.rank].kanji + "  " + RANKS[foe.rank].name));
+  vs.append(mine, el("tkBar"), theirs);
+  body.append(vs);
+  body.append(starRow(TOUR.results, BASHO_DAYS));
+  body.append(el("tkRec", TOUR.wins + " – " + TOUR.losses));
+}
+
+/* The closing scorecard. A majority of the five days is a winning record, which
+   is kachikoshi; taking all five is a zensho-yusho. */
+function bashoVerdict() {
+  if (TOUR.wins === BASHO_DAYS)
+    return { kanji: "全勝優勝", name: "ZENSHŌ-YŪSHŌ", sub: "a perfect basho" };
+  if (TOUR.wins > BASHO_DAYS / 2)
+    return { kanji: "勝ち越し", name: "KACHIKOSHI", sub: "a winning record" };
+  return { kanji: "負け越し", name: "MAKEKOSHI", sub: "a losing record" };
+}
+
+function buildBasho(body) {
+  const v = bashoVerdict();
+  body.append(el("bsBig", TOUR.wins + " – " + TOUR.losses));
+  body.append(starRow(TOUR.results, BASHO_DAYS));
+  const t = el("bsTable");
+  for (let i = 0; i < BASHO_DAYS; i++) {
+    const won = TOUR.results[i] === 1;
+    const row = el("bsRow " + (won ? "w" : "l"));
+    row.append(el("bsDay", "DAY " + (i + 1)),
+               el("bsFoe", SCHEDULE[i].kanji + "  " + SCHEDULE[i].name),
+               el("bsMark " + (won ? "star w" : "star l"), won ? "○" : "●"));
+    t.append(row);
+  }
+  body.append(t);
+  body.append(el("bsVerdict", v.kanji + "  ·  " + v.name));
+  const promoted = TOUR.wins > BASHO_DAYS / 2 && TOUR.rank < RANKS.length - 1;
+  body.append(el("bsSub", promoted
+    ? "PROMOTED TO " + RANKS[TOUR.rank + 1].kanji + " " + RANKS[TOUR.rank + 1].name
+    : v.sub.toUpperCase()));
+  if (promoted) TOUR.rank++;
+}
+
+function tourStart() {
+  TOUR.on = true; TOUR.day = 0; TOUR.wins = 0; TOUR.losses = 0;
+  TOUR.results.length = 0; TOUR.rank = 0;
+  CFG.roundsToWin = 3;                       // a basho bout is shorter
+  rebuildPips();
+  musStop();
+  openOverlay("torikumi");
+}
+
+// stand the day's bout up: your fighter, their fighter, their tier
+function tourBeginDay() {
+  const foe = tourFoe(TOUR.day);
+  MENU.mode = 1;                             // the schedule drives an AI opponent
+  MENU.diff = foe.tier;
+  MENU.chars[1] = foe.char;
+  closeOverlay();
+  HUD.menu.classList.remove("on");
+  HUD.hud.classList.remove("menu");
+  newMatch();
+}
+
+function tourRecord(playerWon) {
+  TOUR.results[TOUR.day] = playerWon ? 1 : 0;
+  if (playerWon) TOUR.wins++; else TOUR.losses++;
+}
+
+function tourNext() {
+  TOUR.day++;
+  if (TOUR.day >= BASHO_DAYS) { openOverlay("basho"); return; }
+  openOverlay("torikumi");
+}
+
+function tourEnd() {
+  TOUR.on = false;
+  CFG.roundsToWin = OPT.rounds;
+  rebuildPips();
+}
+
 function ovRows() {
+  if (OV.mode === "torikumi") return [
+    { lbl: "ENTER THE RING", act: () => tourBeginDay() },
+    { lbl: "LEAVE THE BASHO", act: () => { tourEnd(); closeOverlay(); showMenu(); } },
+  ];
+  if (OV.mode === "basho") return [
+    { lbl: "RETURN TO MENU", act: () => { tourEnd(); closeOverlay(); showMenu(); } },
+  ];
   if (OV.mode === "pause") return [
     { lbl: "RESUME",     act: () => closeOverlay() },
-    { lbl: "RESTART",    act: () => { closeOverlay(); newMatch(); } },
+    // inside a basho this replays the day only — the record is never touched
+    { lbl: TOUR.on ? "REPLAY THE DAY" : "RESTART",
+      act: () => { closeOverlay(); if (TOUR.on) tourBeginDay(); else newMatch(); } },
     { lbl: "SETTINGS",   act: () => openOverlay("settings") },
-    { lbl: "MAIN MENU",  act: () => { closeOverlay(); showMenu(); } },
+    { lbl: TOUR.on ? "LEAVE THE BASHO" : "MAIN MENU",
+      act: () => { tourEnd(); closeOverlay(); showMenu(); } },
   ];
   // settings
   return [
@@ -1923,9 +2137,10 @@ function ovRows() {
       note: OPT.map < 0 ? "a new venue each round" : "this venue every round",
       set: d => { OPT.map = ((OPT.map + 1 + d) + (MAPS.length + 1)) % (MAPS.length + 1) - 1;
                   applyMap(OPT.map < 0 ? G.round - 1 : OPT.map); } },
-    { lbl: "ROUNDS", val: String(CFG.roundsToWin),
-      note: "rounds needed to take the bout",
-      set: d => { CFG.roundsToWin = clamp(CFG.roundsToWin + d, 1, 9);
+    { lbl: "ROUNDS", val: TOUR.on ? "3 · FIXED" : String(CFG.roundsToWin),
+      note: TOUR.on ? "set by the basho" : "rounds needed to take the bout",
+      set: d => { if (TOUR.on) return;      // the schedule owns this during a basho
+                  CFG.roundsToWin = clamp(CFG.roundsToWin + d, 1, 9);
                   OPT.rounds = CFG.roundsToWin; rebuildPips(); } },
     { lbl: "MUSIC", val: OPT.music ? "ON" : "OFF",
       note: "koto and shakuhachi on the menu",
@@ -1962,17 +2177,29 @@ function renderOverlay() {
     el.onclick = () => { OV.row = i; if (r.act) r.act(); else { r.set(1); renderOverlay(); } };
     HUD.ovRows.append(el);
   });
-  const set = OV.mode === "settings";
-  HUD.ovKanji.textContent = set ? "設定" : "中断";
-  HUD.ovTitle.textContent = set ? "SETTINGS" : "PAUSED";
-  HUD.ovHint.innerHTML = set
-    ? '↑↓ SELECT · ←→ CHANGE · <span class="kbd">ESC</span> BACK'
-    : '↑↓ SELECT · <span class="kbd">SPACE</span> CONFIRM · <span class="kbd">P</span> RESUME';
+  HUD.ovBody.textContent = "";
+  const HEAD = {
+    settings:  ["設定", "SETTINGS"],
+    pause:     ["中断", "PAUSED"],
+    torikumi:  ["取組", "TORIKUMI"],
+    basho:     ["成績", "BASHO RESULT"],
+  }[OV.mode] || ["中断", "PAUSED"];
+  HUD.ovKanji.textContent = HEAD[0];
+  HUD.ovTitle.textContent = HEAD[1];
+  if (OV.mode === "torikumi") buildTorikumi(HUD.ovBody);
+  if (OV.mode === "basho") buildBasho(HUD.ovBody);
+  HUD.ovHint.innerHTML =
+    OV.mode === "settings"
+      ? '↑↓ SELECT · ←→ CHANGE · <span class="kbd">ESC</span> BACK'
+      : OV.mode === "pause"
+      ? '↑↓ SELECT · <span class="kbd">SPACE</span> CONFIRM · <span class="kbd">P</span> RESUME'
+      : '↑↓ SELECT · <span class="kbd">SPACE</span> CONFIRM';
 }
 
 function openOverlay(mode) {
   if (mode === "settings" && OV.mode === null) OV.cameFromMenu = G.state === "menu";
   if (mode === "pause") OV.cameFromMenu = false;
+  if (mode === "torikumi" || mode === "basho") OV.cameFromMenu = false;
   OV.mode = mode; OV.row = 0;
   // the sim is frozen while either screen is up
   if (G.state !== "menu") G.paused = true;
@@ -2010,6 +2237,8 @@ function overlayKey(code) {
     const r = rows[OV.row];
     if (r.act) r.act(); else { r.set(1); renderOverlay(); } }
   else if (code === "Escape") {
+    // a torikumi or scorecard card has nothing behind it, so ESC is inert there
+    if (OV.mode === "torikumi" || OV.mode === "basho") return;
     if (OV.mode === "settings") { if (OV.cameFromMenu) closeOverlay(); else openOverlay("pause"); }
     else closeOverlay(); }
   else if (code === "KeyP" && OV.mode === "pause") closeOverlay();
@@ -2018,6 +2247,7 @@ function overlayKey(code) {
 // The menu holds the bout but leaves the dojo live behind it — fighters squared
 // up on their marks and breathing, lamps lit, dust drifting.
 function showMenu() {
+  if (TOUR.on) tourEnd();
   for (const f of F) f.score = 0;
   G.round = 1; G.winner = null;
   syncHUD();
@@ -2035,6 +2265,7 @@ function showMenu() {
 function beginMatch() {
   musStop();
   sndClack(0.85, 1.0); sndClack(0.85, 0.9, 0.10);   // the ring is called
+  if (MENU.mode === 2) { tourStart(); return; }      // a basho opens on its card
   HUD.menu.classList.remove("on");
   HUD.hud.classList.remove("menu");
   newMatch();
@@ -2085,6 +2316,7 @@ function endRound(winner) {
   syncHUD();
 
   const matchOver = winner && winner.score >= CFG.roundsToWin;
+  if (matchOver && TOUR.on) tourRecord(winner.idx === 0);
   if (matchOver) {
     G.state = "matchEnd"; G.stateT = 75; G.winner = winner;
     G.shake = Math.max(G.shake, 0.20); G.flash = 0.35;
@@ -2093,10 +2325,19 @@ function endRound(winner) {
     sndTaiko(0.68, 1.45, 0.34);
     sndClack(0.95, 1.0, 0.34);
     sndCrowd(1.6, 2.6);
-    HUD.bTitle.textContent = winner.team.name + " TAKES THE BOUT";
+    HUD.bTitle.textContent = TOUR.on
+      ? (winner.idx === 0 ? "DAY WON" : "DAY LOST")
+      : winner.team.name + " TAKES THE BOUT";
     HUD.bTitle.style.color = winner.team.hud;
-    HUD.bSub.textContent = CFG.roundsToWin + " ROUNDS WON";
-    HUD.bHint.innerHTML = 'PRESS <span class="kbd">R</span> OR <span class="kbd">SPACE</span> FOR A REMATCH';
+    HUD.bSub.textContent = TOUR.on
+      ? "DAY " + (TOUR.day + 1) + " OF " + BASHO_DAYS + "  ·  " +
+        TOUR.wins + " – " + TOUR.losses
+      : CFG.roundsToWin + " ROUNDS WON";
+    HUD.bHint.innerHTML = TOUR.on
+      ? (TOUR.day + 1 >= BASHO_DAYS
+          ? 'PRESS <span class="kbd">SPACE</span> FOR THE SCORECARD'
+          : 'PRESS <span class="kbd">SPACE</span> FOR THE NEXT DAY')
+      : 'PRESS <span class="kbd">R</span> OR <span class="kbd">SPACE</span> FOR A REMATCH';
     for (let i = 0; i < 85; i++) {
       const a = Math.random() * 6.2832, r = Math.random() * 5.5;
       spawn({
@@ -3686,7 +3927,9 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                render, gl, MESH, push, ENV, lightVP, mergeMesh,
                OPT, OV, LOOKS, AI_FACE, MUS, musStart, musStop, koto, shaku,
                openOverlay, closeOverlay, renderOverlay, ovRows, HEDGE,
-               FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes };
+               FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes,
+               TOUR, SCHEDULE, RANKS, BASHO_DAYS, tourStart, tourBeginDay,
+               tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips };
 </script>
 </body>
 </html>
