@@ -1240,6 +1240,7 @@ function makeFighter(i) {
     lean: 0, leanX: 0, leanZ: 0,
     step: 0, bob: 0, squash: 0, thrust: 0, hitFlash: 0, scuffT: 0,
     look: LOOKS.ARASHI,
+    cel: 0, celOn: false, celPuff: false,   // sonkyo settle after a round win
     ghosts: [],
   };
 }
@@ -2068,6 +2069,7 @@ function startRound() {
     f.yaw = side < 0 ? -Math.PI / 2 : Math.PI / 2;   // squared up on the tachi-ai
     f.tumble = 0; f.spin = 0; f.lean = 0; f.leanX = 0; f.leanZ = 0;
     f.step = 0; f.bob = 0; f.squash = 0; f.thrust = 0; f.hitFlash = 0; f.scuffT = 0;
+    f.cel = 0; f.celOn = false; f.celPuff = false;
     f.ghosts.length = 0;
   }
   HUD.banner.classList.remove("on");
@@ -2078,7 +2080,7 @@ function startRound() {
 
 function endRound(winner) {
   G.state = "roundEnd"; G.stateT = 90;         // 1.5 s beat before you can advance
-  if (winner) { winner.score++; syncHUD(winner.idx); }
+  if (winner) { winner.score++; syncHUD(winner.idx); winner.celOn = true; }
   G.round++;
   syncHUD();
 
@@ -2422,6 +2424,20 @@ function step() {
       const nx = f.x + f.vx, nz = f.z + f.vz;
       if (Math.hypot(nx, nz) < G.radius - f.hitR) { f.x = nx; f.z = nz; }
       else { f.vx *= 0.55; f.vz *= 0.55; }
+    }
+    /* Sonkyo — the winner sinks into the formal crouch. Held to a POSE rather
+       than a performance for two reasons: sumo etiquette forbids celebrating,
+       and this beat is skippable with Space, so anything sequential would only
+       ever be seen a fifth of the way through. It waits for them to coast to a
+       stop first, so the settle reads as deliberate instead of as a stumble. */
+    for (const f of F) {
+      if (!f.celOn || f.falling) continue;
+      const stopped = Math.hypot(f.vx, f.vz) < 0.035;
+      f.cel = lerp(f.cel, stopped ? 1 : 0, 0.13);
+      if (!f.celPuff && f.cel > 0.45) {
+        f.celPuff = true;
+        dust(f.x, CFG.deck + 0.03, f.z, 12, 0.016);
+      }
     }
     return;
   }
@@ -3227,6 +3243,14 @@ function fighter(f) {
   }
   const sqm = M4.trs(0, 0, 0, 0, 0, 0, 1 + sq * 0.18, 1 - sq * 0.22, 1 + sq * 0.18);
   rig = M4.mul(rig, sqm);
+  /* Sonkyo also squashes the whole rig a little. Dropping the torso alone was
+     legible but weak — from directly above, height loss barely registers, whereas
+     getting WIDER at the same time changes the silhouette, and silhouette is
+     what this camera actually shows. */
+  if (f.cel > 0.001) {
+    rig = M4.mul(rig, M4.trs(0, 0, 0, 0, 0, 0,
+      1 + f.cel * 0.12, 1 - f.cel * 0.11, 1 + f.cel * 0.12));
+  }
 
   const M = (lx, ly, lz, rx, ry, rz, sx, sy, sz) =>
     M4.mul(rig, M4.trs(lx, ly, lz, rx, ry, rz, sx, sy, sz));
@@ -3239,6 +3263,9 @@ function fighter(f) {
   const sp = Math.hypot(f.vx, f.vz);
   const lift = clamp(sp * 3.2, 0, 0.09);
   const th = f.thrust;
+  // sonkyo: the whole torso drops and the knees splay out to either side
+  const cr = f.cel;
+  const dy = -0.30 * cr;
 
   // legs — wide sumo stance, alternating stomp. Limbs are drawn joint-to-joint
   // so the blobs overlap and merge instead of reading as separate spheres.
@@ -3253,8 +3280,9 @@ function fighter(f) {
     const side = i === 0 ? -1 : 1;
     const g = i === 0 ? gait : -gait;
     const up = Math.max(0, g) * lift;
-    const hip  = [side * 0.175, 0.50, 0];
-    const foot = [side * 0.255, 0.085 + up * 1.4, 0.055 + g * lift * 1.5];
+    const hip  = [side * (0.175 + cr * 0.06), 0.50 + dy, 0];
+    const foot = [side * (0.255 + cr * 0.24), 0.085 + up * 1.4,
+                  0.055 + g * lift * 1.5 + cr * 0.10];
     limb(hip, foot, 0.335, B);
     push(MESH.sphere, M4.mul(rig,
       M4.trs(foot[0], foot[1] - 0.005, foot[2] + 0.045, 0, side * 0.22, 0,
@@ -3262,26 +3290,28 @@ function fighter(f) {
   }
 
   // hips, mawashi, belly, chest
-  push(MESH.sphere, M(RIG.hips[0], RIG.hips[1], RIG.hips[2], 0, 0, 0, 0.78, 0.52, 0.64), B);
-  push(MESH.belt,   M(0, 0.50, 0, -0.04, 0, 0, 0.80, 0.74, 0.68), BL);
-  push(MESH.sphere, M(RIG.belly[0], RIG.belly[1], RIG.belly[2], -0.06 - th * 0.16, 0, 0,
-       0.88, 0.70, 0.80), B);
-  push(MESH.sphere, M(RIG.chest[0], RIG.chest[1], RIG.chest[2], -0.10 - th * 0.22, 0, 0,
-       0.74, 0.50, 0.64), B);
+  push(MESH.sphere, M(RIG.hips[0], RIG.hips[1] + dy, RIG.hips[2], 0, 0, 0,
+       0.78, 0.52, 0.64), B);
+  push(MESH.belt,   M(0, 0.50 + dy, 0, -0.04, 0, 0, 0.80, 0.74, 0.68), BL);
+  push(MESH.sphere, M(RIG.belly[0], RIG.belly[1] + dy, RIG.belly[2],
+       -0.06 - th * 0.16, 0, 0, 0.88, 0.70, 0.80), B);
+  // the back straightens as they sink — sonkyo is upright, not hunched
+  push(MESH.sphere, M(RIG.chest[0], RIG.chest[1] + dy, RIG.chest[2],
+       -0.10 - th * 0.22 + cr * 0.14, 0, 0, 0.74, 0.50, 0.64), B);
 
   // shoulders + thick arms braced toward the opponent
-  const push2 = th + f.lean * 0.55;                 // how far forward they reach
+  const push2 = (th + f.lean * 0.55) * (1 - cr);    // how far forward they reach
   for (let i = 0; i < 2; i++) {
     const side = i === 0 ? -1 : 1;
-    const sh = RIG.sh[i];
+    const sh = [RIG.sh[i][0], RIG.sh[i][1] + dy, RIG.sh[i][2]];
     push(MESH.sphere, M(sh[0], sh[1], sh[2], 0, 0, 0, 0.335, 0.335, 0.335), B);
 
     const swing = -gait * side * 0.10 * (1 - th);
     // rest: hanging out and slightly forward · thrust: shoved straight ahead
     const dir = [
-      side * lerp(0.46, 0.26, push2),
-      lerp(-0.88, -0.26, push2) + swing,
-      lerp(0.34, 0.96, push2),
+      side * lerp(0.46, 0.26, push2) + side * cr * 0.24,
+      lerp(-0.88, -0.26, push2) + swing - cr * 0.20,
+      lerp(0.34, 0.96, push2) + cr * 0.30,
     ];
     const dl = Math.hypot(dir[0], dir[1], dir[2]);
     const d = [dir[0]/dl, dir[1]/dl, dir[2]/dl];
@@ -3295,9 +3325,10 @@ function fighter(f) {
 
   // neck + head. The head is pitched up ~30° so the face turns toward the
   // camera; every facial feature is placed in head space and inherits it.
-  push(MESH.sphere, M(RIG.neck[0], RIG.neck[1], RIG.neck[2], 0, 0, 0, 0.30, 0.20, 0.28), B);
+  push(MESH.sphere, M(RIG.neck[0], RIG.neck[1] + dy, RIG.neck[2], 0, 0, 0,
+       0.30, 0.20, 0.28), B);
   const headBase = M4.mul(rig,
-    M4.trs(RIG.head[0], RIG.head[1], RIG.head[2], 0.52 + th * 0.14, 0, 0, 1, 1, 1));
+    M4.trs(RIG.head[0], RIG.head[1] + dy, RIG.head[2], 0.52 + th * 0.14, 0, 0, 1, 1, 1));
   const HM = (lx, ly, lz, rx, ry, rz, sx, sy, sz) =>
     M4.mul(headBase, M4.trs(lx, ly, lz, rx, ry, rz, sx, sy, sz));
 
