@@ -2610,10 +2610,18 @@ const PC_CROPS = [
 const PC_SIZE = 224;                    // MobileNet's input square
 const PC_INTERVAL = 130;                // ms between predictions — ~8/s
 const PC_SMOOTH = 0.45;                 // weight of the newest frame
+/* Each entry is a list of places to try in order, first one that loads wins.
+   The trained head is 6.9 MB, far too much to inline into a file the keyboard
+   game loads every time — so it stays a sibling file, with the copy in the
+   repo as a fallback. That way a checkout uses its own local weights and never
+   touches the network for them, while someone who downloaded nothing but
+   sumo.html still gets the mode. The @main URL follows the branch, so a
+   retrained model reaches those players too, within jsDelivr's cache window. */
 const PC_SRC = [
-  "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js",
-  "https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js",
-  "pointing-model.js",
+  ["https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"],
+  ["https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"],
+  ["pointing-model.js",
+   "https://cdn.jsdelivr.net/gh/JoulBaransi/sumo-game@main/pointing-model.js"],
 ];
 
 const POINTC = {
@@ -2636,15 +2644,21 @@ function pcLabel(t) { HUD.pcamLbl.textContent = t; }
    needs nothing but the file itself. */
 function pcLoadDeps() {
   if (POINTC.deps) return POINTC.deps;
-  POINTC.deps = PC_SRC.reduce((chain, src) => chain.then(() => new Promise((ok, no) => {
-    // pointing-model.js may already be present as a plain script tag
-    if (src === "pointing-model.js" && window.POINTING_MODEL) return ok();
+  const one = src => new Promise((ok, no) => {
     const s = document.createElement("script");
     s.src = src; s.async = false;
-    s.onload = () => ok();
+    s.onload = () => ok(src);
     s.onerror = () => no(new Error(src.split("/").pop() + " failed to load"));
     document.head.appendChild(s);
-  })), Promise.resolve());
+  });
+  // walk each entry's alternatives until one loads; only then move to the next
+  const step = alts => alts.reduce(
+    (p, src) => p.catch(() => one(src)), Promise.reject());
+  POINTC.deps = PC_SRC.reduce((chain, alts) => chain.then(() => {
+    // the model may already be on the page as a plain script tag
+    if (alts[0] === "pointing-model.js" && window.POINTING_MODEL) return null;
+    return step(alts);
+  }), Promise.resolve());
   return POINTC.deps;
 }
 
