@@ -14,18 +14,26 @@
 
   #hud{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 
+  /* The opponent's colour lives in one variable pair so a basho can repaint the
+     whole HUD — swatch, name, pips, bout card — by setting two properties.
+     --p2 is the mawashi tone, --p2l the lighter tone text is legible in, and
+     --p2g the same as an rgb triple for the glows. The player's blue is never a
+     variable: which side you are must never move. */
+  :root{--p2:#dc4436;--p2l:#ffb0a4;--p2g:255,110,90}
+
   /* ---------- scoreboards ---------- */
   .board{position:absolute;top:26px;display:flex;align-items:flex-start;gap:14px}
   .board.p1{left:30px}
   .board.p2{right:30px;flex-direction:row-reverse}
   .swatch{width:6px;height:64px;border-radius:3px;margin-top:4px}
   .p1 .swatch{background:linear-gradient(#8ad6ff,#2a7fd4);box-shadow:0 0 18px rgba(90,180,255,.55)}
-  .p2 .swatch{background:linear-gradient(#ffb0a4,#dc4436);box-shadow:0 0 18px rgba(255,110,90,.5)}
+  .p2 .swatch{background:linear-gradient(var(--p2l),var(--p2));
+    box-shadow:0 0 18px rgba(var(--p2g),.5)}
   .binfo{display:flex;flex-direction:column}
   .p2 .binfo{align-items:flex-end}
   .bname{font-size:13px;font-weight:800;letter-spacing:.22em;color:rgba(255,255,255,.62)}
   .p1 .bname{color:#9adcff}
-  .p2 .bname{color:#ffb3a6}
+  .p2 .bname{color:var(--p2l)}
   .bscore{font-size:52px;font-weight:800;line-height:.96;color:#fff;
     font-variant-numeric:tabular-nums;letter-spacing:-.02em;
     text-shadow:0 2px 20px rgba(0,0,0,.6)}
@@ -35,7 +43,7 @@
   .pip{width:16px;height:5px;border-radius:3px;background:rgba(255,255,255,.16);
     transition:background .25s,box-shadow .25s}
   .p1 .pip.on{background:#4fa8ea;box-shadow:0 0 10px rgba(80,170,235,.9)}
-  .p2 .pip.on{background:#e8574a;box-shadow:0 0 10px rgba(232,87,74,.9)}
+  .p2 .pip.on{background:var(--p2);box-shadow:0 0 10px rgba(var(--p2g),.9)}
   .keycap{margin-top:9px;font-size:10px;font-weight:700;letter-spacing:.16em;
     color:rgba(255,255,255,.32)}
 
@@ -129,7 +137,7 @@
   .tkName{font-size:17px;font-weight:800;letter-spacing:.08em;color:#fff;
     white-space:nowrap}
   .tkName.p1{color:#7fd0ff}
-  .tkName.p2{color:#ffab9e}
+  .tkName.p2{color:var(--p2l)}
   .tkRank{font-size:9px;font-weight:700;letter-spacing:.2em;color:#d9b877}
   .tkBar{width:1px;height:56px;
     background:linear-gradient(transparent,rgba(217,184,119,.5),transparent)}
@@ -213,7 +221,7 @@
   .oVal{min-width:186px;text-align:center;color:rgba(255,255,255,.5)}
   .oRow.sel .oVal{color:#fff}
   .oVal.p1{color:#7fd0ff}
-  .oVal.p2{color:#ffab9e}
+  .oVal.p2{color:var(--p2l)}
   .oChev{font-size:11px;color:rgba(255,255,255,.22)}
   .oRow.sel .oChev{color:rgba(217,184,119,.8)}
   .oNote{font-size:9px;letter-spacing:.16em;color:rgba(255,255,255,.3);
@@ -251,7 +259,7 @@
     <div class="board p1">
       <div class="swatch"></div>
       <div class="binfo">
-        <div class="bname">BLUE</div>
+        <div class="bname" id="bn1">BLUE</div>
         <div class="bscore" id="s1">0</div>
         <div class="pips" id="pip1"></div>
         <div class="keycap" id="tag1">嵐 ARASHI</div>
@@ -261,7 +269,7 @@
     <div class="board p2">
       <div class="swatch"></div>
       <div class="binfo">
-        <div class="bname">RED</div>
+        <div class="bname" id="bn2">RED</div>
         <div class="bscore" id="s2">0</div>
         <div class="pips" id="pip2"></div>
         <div class="keycap" id="tag2">嵐 ARASHI</div>
@@ -1186,12 +1194,34 @@ function skin(hex, hi) {
   return { albedo: srgb(hex), spec: 0.30, shin: 34, rim: hi, fog: 0 };
 }
 
+/* A fighter's colours in one place: the body and mawashi in the world, the two
+   HUD tones that go with them, and the particle glow. `rim` rises as the body
+   darkens, so an ink-coloured rikishi still keeps a lit silhouette edge instead
+   of going to a flat hole. */
+function livery(name, bodyHex, beltHex, lightHex, glow, rim) {
+  return {
+    name, hud: lightHex, glow, css: [bodyHex, lightHex],
+    body: skin(bodyHex, rim === undefined ? 0.33 : rim),
+    belt: { albedo: srgb(beltHex), spec: 0.35, shin: 60, rim: 0.12, fog: 0 },
+  };
+}
+
 const TEAM = [
-  { name: "BLUE", body: skin("#3f8fd6", 0.34), belt: { albedo: srgb("#12365e"), spec: 0.35, shin: 60, rim: 0.12, fog: 0 },
-    glow: [0.25, 0.55, 1.0], hud: "#7fd0ff" },
-  { name: "RED",  body: skin("#d8544a", 0.32), belt: { albedo: srgb("#5c1712"), spec: 0.35, shin: 60, rim: 0.12, fog: 0 },
-    glow: [1.0, 0.35, 0.25], hud: "#ffab9e" },
+  livery("BLUE", "#3f8fd6", "#12365e", "#7fd0ff", [0.25, 0.55, 1.0], 0.34),
+  livery("RED",  "#d8544a", "#5c1712", "#ffab9e", [1.0, 0.35, 0.25], 0.32),
 ];
+
+const rgbTriple = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(",");
+
+/* Repaint every HUD element that speaks for the opponent. Called from applyChars
+   and from the bout card, so the colour is already right the first time you see
+   the name — not one frame after the fighter appears. */
+function setFoeLivery(t) {
+  const s = document.documentElement.style;
+  s.setProperty("--p2", t.css[0]);
+  s.setProperty("--p2l", t.css[1]);
+  s.setProperty("--p2g", rgbTriple(t.css[0]));
+}
 
 /* ═════════════════════════════ TUNING ═════════════════════════════ */
 /* Physics is in world units per 1/60 s frame, on the (x, z) plane only. */
@@ -1248,21 +1278,29 @@ const AI_FACE = [
   { brow: [-0.34, 0.036], eye: [0.112, 0.148], mouth: [0.120, 0.086] },
   null,
   { brow: [0.50, 0.058],  eye: [0.098, 0.072], mouth: [0.150, 0.030] },
+  { brow: [-0.44, 0.032], eye: [0.116, 0.158], mouth: [0.130, 0.098] },
 ];
 
 /* ── AI tiers ──
    Difficulty is decision quality, never extra speed or force: both fighters stay
    physically identical, so a win never feels stolen. `react` is how many frames
    stale its picture of you is, `predict` how far ahead it extrapolates, `edge`
-   the fraction of the radius at which it flees the rim, and `bait` how often it
-   sidesteps a charge to let you sail off on your own momentum. */
+   the fraction of the radius at which it flees the rim, `bait` how often it
+   sidesteps a charge to let you sail off on your own momentum, and `idle` how
+   often it simply stops for a beat and gives you the ring.
+
+   Index 3 is deliberately below EASY and is not offered in the VS AI menu — it
+   exists so the opening day of a basho can be a genuine warm-up. The difficulty
+   row still cycles the first three, which is what EASY/MEDIUM/HARD should mean. */
 const AI_TIERS = [
-  { label: "EASY",   name: "RIKISHI",  kanji: "力士", react: 16, predict: 0,
-    edge: 0.86, jitter: 0.22, every: 8, bait: 0.00 },
-  { label: "MEDIUM", name: "SEKIWAKE", kanji: "関脇", react: 14, predict: 5,
-    edge: 0.71, jitter: 0.19, every: 6, bait: 0.20 },
-  { label: "HARD",   name: "YOKOZUNA", kanji: "横綱", react: 3,  predict: 30,
-    edge: 0.47, jitter: 0.03, every: 2, bait: 0.85 },
+  { label: "EASY",   name: "RIKISHI",   kanji: "力士",   react: 16, predict: 0,
+    edge: 0.86, jitter: 0.22, every: 8,  bait: 0.00, idle: 0.00 },
+  { label: "MEDIUM", name: "SEKIWAKE",  kanji: "関脇",   react: 14, predict: 5,
+    edge: 0.71, jitter: 0.19, every: 6,  bait: 0.20, idle: 0.00 },
+  { label: "HARD",   name: "YOKOZUNA",  kanji: "横綱",   react: 3,  predict: 30,
+    edge: 0.47, jitter: 0.03, every: 2,  bait: 0.85, idle: 0.00 },
+  { label: "NOVICE", name: "JONOKUCHI", kanji: "序ノ口", react: 26, predict: 0,
+    edge: 0.93, jitter: 0.34, every: 14, bait: 0.00, idle: 0.30 },
 ];
 
 const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
@@ -1284,13 +1322,30 @@ const RANKS = [
   { kanji: "関脇", name: "SEKIWAKE" },   { kanji: "大関", name: "ŌZEKI" },
   { kanji: "横綱", name: "YOKOZUNA" },
 ];
-// one opponent per day, climbing in rank and in decision quality
+/* One opponent per day, climbing in rank and in decision quality. Day one is
+   NOVICE — the tier below EASY — because the first bout of a run is where you
+   are still learning the shove, not where you should be tested.
+
+   The BODY ramps too, and it turns out to matter more than the tier: measured
+   against a deliberately clumsy stand-in player, an EASY opponent on the heavy
+   body won four bouts in five, while the same tier on the even body was close to
+   a coin flip. So the heavy body waits for day four, where a wall belongs.
+
+   Each has his own mawashi, so the five days are five rikishi rather than the
+   same red man five times. Real mawashi colours are the rikishi's own, so this
+   is also how it looks. Every hue stays clear of the player's blue: you read
+   which one you are from colour a hundred times a bout. */
 const SCHEDULE = [
-  { kanji: "若嵐",   name: "WAKAARASHI", rank: 0, char: 2, tier: 0 },
-  { kanji: "岩ノ戸", name: "IWANOTO",    rank: 0, char: 0, tier: 0 },
-  { kanji: "黒龍",   name: "KOKURYŪ",    rank: 1, char: 1, tier: 1 },
-  { kanji: "大磐石", name: "DAIBANJAKU", rank: 2, char: 0, tier: 1 },
-  { kanji: "雷電",   name: "RAIDEN",     rank: 4, char: 1, tier: 2 },
+  { kanji: "若嵐",   name: "WAKAARASHI", rank: 0, char: 2, tier: 3,
+    col: livery("WAKAARASHI", "#6cba55", "#1f4a1a", "#a9e39a", [0.42, 0.95, 0.35]) },
+  { kanji: "朝霧",   name: "ASAGIRI",    rank: 0, char: 1, tier: 0,
+    col: livery("ASAGIRI",    "#a35ec6", "#3a1660", "#dcb0f0", [0.68, 0.36, 1.00]) },
+  { kanji: "黒龍",   name: "KOKURYŪ",    rank: 1, char: 1, tier: 1,
+    col: livery("KOKURYŪ",    "#514645", "#1a1616", "#c2b6b4", [0.60, 0.52, 0.62], 0.62) },
+  { kanji: "大磐石", name: "DAIBANJAKU", rank: 2, char: 0, tier: 1,
+    col: livery("DAIBANJAKU", "#7a2b42", "#2c0b16", "#e39ab0", [1.00, 0.30, 0.50]) },
+  { kanji: "雷電",   name: "RAIDEN",     rank: 4, char: 1, tier: 2,
+    col: livery("RAIDEN",     "#d8544a", "#5c1712", "#ffab9e", [1.00, 0.35, 0.25], 0.32) },
 ];
 const TOUR = { on: false, day: 0, wins: 0, losses: 0, results: [], rank: 0 };
 // The pause screen and the settings screen are the same overlay in two modes.
@@ -1847,6 +1902,7 @@ function sndToggle() {
 
 const HUD = {
   s: [document.getElementById("s1"), document.getElementById("s2")],
+  bn: [document.getElementById("bn1"), document.getElementById("bn2")],
   pips: [document.getElementById("pip1"), document.getElementById("pip2")],
   metaTop: document.getElementById("metaTop"),
   warn: document.getElementById("warn"),
@@ -1969,6 +2025,10 @@ function menuChange(d) {
 }
 
 function applyChars() {
+  // in a basho the opponent wears his own colours; otherwise it is plain red
+  F[0].team = TEAM[0];
+  F[1].team = TOUR.on ? tourFoe(TOUR.day).col : TEAM[1];
+  setFoeLivery(F[1].team);
   for (let i = 0; i < 2; i++) {
     const f = F[i], c = CHARS[MENU.chars[i]];
     f.char = c; f.mass = c.mass; f.hitR = c.hitR;
@@ -1982,7 +2042,12 @@ function applyChars() {
                eye:  (ai && ai.eye)  || base.eye,
                mouth:(ai && ai.mouth)|| base.mouth };
   }
-  // name plates: character, and who's driving red
+  /* Scoreboard headings. Outside a basho the two sides are BLUE and RED, which
+     is what the colours say. Inside one, the opponent has a name, and "RED"
+     would be doubly wrong — he isn't red any more either. */
+  HUD.bn[0].textContent = TOUR.on ? "YOU" : TEAM[0].name;
+  HUD.bn[1].textContent = TOUR.on ? tourFoe(TOUR.day).name : TEAM[1].name;
+  // name plates: character, and who's driving the other side
   HUD.tag[0].textContent = CHARS[MENU.chars[0]].kanji + " " + CHARS[MENU.chars[0]].name;
   HUD.tag[1].textContent = CHARS[MENU.chars[1]].kanji + " " + CHARS[MENU.chars[1]].name +
     (MENU.mode === 1 ? "  ·  " + AI_TIERS[MENU.diff].label : "");
@@ -2028,6 +2093,7 @@ function tourFoe(day) { return SCHEDULE[clamp(day, 0, SCHEDULE.length - 1)]; }
 // torikumi — the bout card shown before each day
 function buildTorikumi(body) {
   const foe = tourFoe(TOUR.day), me = CHARS[MENU.chars[0]];
+  setFoeLivery(foe.col);         // the card announces him in his own colour
   body.append(el("tkDay", "DAY " + (TOUR.day + 1) + " OF " + BASHO_DAYS));
   const vs = el("tkVs");
   const mine = el("tkSide r");
@@ -2112,6 +2178,8 @@ function tourEnd() {
   TOUR.on = false;
   CFG.roundsToWin = OPT.rounds;
   rebuildPips();
+  // hand the ring back to plain red, including the fighters posing behind the menu
+  applyChars();
 }
 
 function ovRows() {
@@ -2352,7 +2420,9 @@ function endRound(winner) {
     }
   } else if (winner) {
     sndClack(0.90, 1.1); sndTaiko(0.95, 0.80, 0.09);
-    HUD.bTitle.textContent = winner.team.name + " WINS";
+    // in a basho the other side has a name, so "BLUE WINS" would read oddly
+    HUD.bTitle.textContent = TOUR.on && winner.idx === 0
+      ? "YOU WIN" : winner.team.name + " WINS";
     HUD.bTitle.style.color = winner.team.hud;
     HUD.bSub.textContent = "ROUND " + (G.round - 1);
     HUD.bHint.innerHTML = 'PRESS <span class="kbd">SPACE</span> FOR THE NEXT ROUND';
@@ -2439,6 +2509,10 @@ function aiStep() {
                                     dz += (Math.random() - 0.5) * 9; }
     const l = Math.hypot(dx, dz) || 1;
     AI.dir = [dx / l, dz / l];
+    // a beat of hesitation. Standing still is the one thing none of the other
+    // knobs can produce — the direction is always normalised — and it is what
+    // actually gives a new player the room to set up a shove.
+    if (Math.random() < T.idle) AI.dir = [0, 0];
   }
 
   const [dx, dz] = AI.dir;
@@ -3929,7 +4003,8 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                openOverlay, closeOverlay, renderOverlay, ovRows, HEDGE,
                FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes,
                TOUR, SCHEDULE, RANKS, BASHO_DAYS, tourStart, tourBeginDay,
-               tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips };
+               tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips,
+               TEAM, applyChars, setFoeLivery, aiStep, KEYS, CTRL };
 </script>
 </body>
 </html>
