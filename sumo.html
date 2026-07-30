@@ -243,7 +243,8 @@
     cursor:pointer;user-select:none}
   .oRow.sel{background:rgba(255,255,255,.075);border-color:rgba(217,184,119,.42)}
   .oRow:not(.sel):hover{background:rgba(255,255,255,.04)}
-  .oLbl{width:104px;text-align:right;font-size:10px;letter-spacing:.24em;
+  /* wide enough for the longest label, which is "YOUR MAWASHI" at this tracking */
+  .oLbl{width:122px;text-align:right;font-size:10px;letter-spacing:.24em;
     color:rgba(255,255,255,.38)}
   .oRow.sel .oLbl{color:rgba(217,184,119,.95)}
   .oVal{min-width:186px;text-align:center;color:rgba(255,255,255,.5)}
@@ -265,6 +266,20 @@
   #mStart span{animation:hintPulse 1.7s ease-in-out infinite}
   #mFoot{margin-top:18px;font-size:10px;font-weight:700;letter-spacing:.2em;
     color:rgba(255,255,255,.3)}
+  /* A second colour row costs 35px of height, and in a short window that was
+     enough to push the footer off the bottom and close the gap the two fighters
+     are framed in. Below this the whole menu compacts rather than overflowing —
+     the title is the first thing that can afford to give up room. */
+  @media (max-height:640px){
+    #menu{padding:3vh 0 3vh}
+    #mTitle{font-size:58px}
+    #mKanji{font-size:12px;letter-spacing:.5em;text-indent:.5em}
+    #mSub{margin-top:9px;font-size:10px}
+    #mSub::before,#mSub::after{width:40px}
+    .oRow{height:27px}
+    #mStart{margin-top:14px;padding:7px 18px;font-size:12px}
+    #mFoot{margin-top:9px}
+  }
   /* staggered entrance */
   @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
   #menu.on .mTop>*,#menu.on .mBot>*{animation:rise .75s cubic-bezier(.2,.85,.2,1) backwards}
@@ -1255,14 +1270,21 @@ const TEAM = [
   livery("RED",  "#d8544a", "#5c1712", "#ffab9e", [1.0, 0.35, 0.25], 0.32),
 ];
 
-/* ── your mawashi ──
-   Four, deliberately. Every one is cool or neutral, because red and its
-   neighbours are the opponent's language in every mode — plain RED in a normal
-   bout, and crimson and wine on the last two days of a basho. Which fighter is
-   yours gets read off colour a hundred times a bout, so the palette is chosen so
-   that no pick can ever be mistaken for the man opposite. That is also why this
-   is four names rather than a colour wheel: nothing to get wrong. */
-const MAWASHI = [
+/* ── mawashi ──
+   Both fighters choose, and the two palettes are kept apart on purpose: the left
+   side wears the cool half of the wheel, the right side the warm and the dark.
+   Four each.
+
+   Splitting them this way is what makes the choice safe. Which fighter is yours
+   gets read off colour a hundred times a bout, and with one shared list the two
+   of you could dress identically — so instead of policing that at runtime, the
+   palettes simply cannot overlap. It also keeps the left side clear of every
+   basho opponent, who are green, violet, ink, wine and crimson: warm and dark
+   are exactly the colours the schedule uses, and the left side has none of them.
+
+   Four names each rather than a colour wheel, because this should take a second
+   and never be thought about again. */
+const MAWASHI = [[
   TEAM[0],                                                              // 青 blue
   /* Teal rather than a truer green: day one of a basho is a leaf-green rikishi,
      and that was the one pairing in this whole palette where two fighters sat in
@@ -1272,8 +1294,18 @@ const MAWASHI = [
   livery("JADE",   "#12969b", "#07383c", "#79e0e6", [0.15, 0.90, 0.95], 0.34),
   livery("INDIGO", "#5a5bc8", "#191a4e", "#aeb0ff", [0.38, 0.38, 1.00], 0.34),
   livery("ASH",    "#c3cbd2", "#4a5259", "#eef3f7", [0.80, 0.88, 0.95], 0.30),
-];
-const MAWASHI_KANJI = ["青", "翠", "藍", "白"];
+], [
+  TEAM[1],                                                              // 赤 red
+  livery("AMBER",  "#d97e1e", "#4d2605", "#ffd08a", [1.00, 0.62, 0.14], 0.32),
+  livery("PLUM",   "#a8437e", "#3d0f2c", "#f5a4d4", [1.00, 0.32, 0.75], 0.32),
+  // dark enough to need the lifted rim, the same trick Kokuryu's ink uses
+  livery("SUMI",   "#4a4142", "#171314", "#c0b4b5", [0.62, 0.50, 0.50], 0.62),
+]];
+const MAWASHI_KANJI = [["青", "翠", "藍", "白"], ["赤", "橙", "紫", "墨"]];
+
+const mawashiOf = side => MAWASHI[side][OPT.mawashi[side]];
+const mawashiName = side =>
+  MAWASHI_KANJI[side][OPT.mawashi[side]] + "  " + mawashiOf(side).name;
 
 const rgbTriple = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(",");
 
@@ -1373,7 +1405,7 @@ const AI_TIERS = [
 const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
 /* Settings persist across bouts. map = -1 means the venues rotate one per round,
    which is the default; any other value pins a single venue. */
-const OPT = { map: -1, music: true, rounds: 5, point: false, mawashi: 0 };
+const OPT = { map: -1, music: true, rounds: 5, point: false, mawashi: [0, 0] };
 
 /* ── the basho ──
    A real tournament runs fifteen days, one bout a day, and you fight every day
@@ -2036,6 +2068,8 @@ const MODE_NOTE = ["share the keyboard", "one keyboard, one human",
                    "five days, one record"];
 const CHAR_NOTE = ["heavy · slow · immovable", "even in every way",
                    "light · quick · skittish"];
+// who each side is, per mode — short, because it prefixes two rows
+const SIDE_LABEL = [["P1", "P2"], ["YOUR", "AI"], ["YOUR", "AI"]];
 
 function menuRows() {
   const rows = [
@@ -2054,23 +2088,25 @@ function menuRows() {
   const sides = MENU.mode === 2 ? 1 : 2;
   for (let i = 0; i < sides; i++) {
     const c = CHARS[MENU.chars[i]];
-    /* Your side is named by the mawashi you are wearing, so the label and the
-       fighter always agree — calling it BLUE while you are in jade would be the
-       one place the colour lies. */
-    rows.push({ lbl: MENU.mode === 2 ? "YOUR RIKISHI"
-                  : (i ? TEAM[1].name : MAWASHI[OPT.mawashi].name),
-      cls: i ? "p2" : "p1",
+    const cls = i ? "p2" : "p1";
+    /* Both sides carry a colour now, so a side can no longer be NAMED by its
+       colour — the label would just repeat the row under it, and in a basho it
+       would name a colour the schedule chose rather than you. So the sides get
+       stable names, and each keeps its own two rows together. */
+    const who = SIDE_LABEL[MENU.mode][i];
+    rows.push({ lbl: who + " RIKISHI", cls,
       val: c.kanji + "  " + c.name, note: CHAR_NOTE[MENU.chars[i]],
       get: () => MENU.chars[i], set: v => MENU.chars[i] = (v + 3) % 3, n: 3 });
-    // your colour sits directly under your own fighter; player 2 stays red
-    if (i === 0) {
-      const m = MAWASHI[OPT.mawashi];
-      rows.push({ lbl: "MAWASHI", cls: "p1",
-        val: MAWASHI_KANJI[OPT.mawashi] + "  " + m.name,
-        note: "the belt you wrap on",
-        get: () => OPT.mawashi,
-        set: v => OPT.mawashi = (v + MAWASHI.length) % MAWASHI.length,
-        n: MAWASHI.length });
+    /* In a basho the opponent's colour is his own, like his name and his rank,
+       so there is nothing to offer for that side. */
+    if (i === 0 || MENU.mode !== 2) {
+      const list = MAWASHI[i];
+      rows.push({ lbl: who + " MAWASHI", cls,
+        val: mawashiName(i),
+        note: i ? "the belt they wrap on" : "the belt you wrap on",
+        get: () => OPT.mawashi[i],
+        set: v => OPT.mawashi[i] = (v + list.length) % list.length,
+        n: list.length });
     }
   }
   return rows;
@@ -2131,8 +2167,8 @@ function renderMenu() {
      the AI they are what IT presses. */
   HUD.mFoot.textContent =
     "↑↓ SELECT · ←→ CHANGE · OR USE THE MOUSE · " +
-    MAWASHI[OPT.mawashi].name + " W A S D" +
-    (MENU.mode === 0 ? " · " + TEAM[1].name + " ↑ ← ↓ →" : "") +
+    mawashiOf(0).name + " W A S D" +
+    (MENU.mode === 0 ? " · " + mawashiOf(1).name + " ↑ ← ↓ →" : "") +
     " · P PAUSE · M MUTE · ESC MENU";
 }
 
@@ -2151,9 +2187,9 @@ function menuChange(d) {
 }
 
 function applyChars() {
-  // your mawashi is your own; in a basho the opponent wears his, else plain red
-  F[0].team = MAWASHI[OPT.mawashi];
-  F[1].team = TOUR.on ? tourFoe(TOUR.day).col : TEAM[1];
+  // each side wears its own pick; in a basho the schedule dresses the opponent
+  F[0].team = mawashiOf(0);
+  F[1].team = TOUR.on ? tourFoe(TOUR.day).col : mawashiOf(1);
   setMeLivery(F[0].team);
   setFoeLivery(F[1].team);
   for (let i = 0; i < 2; i++) {
@@ -2173,7 +2209,7 @@ function applyChars() {
      is what the colours say. Inside one, the opponent has a name, and "RED"
      would be doubly wrong — he isn't red any more either. */
   HUD.bn[0].textContent = TOUR.on ? "YOU" : F[0].team.name;
-  HUD.bn[1].textContent = TOUR.on ? tourFoe(TOUR.day).name : TEAM[1].name;
+  HUD.bn[1].textContent = TOUR.on ? tourFoe(TOUR.day).name : F[1].team.name;
   // name plates: character, and who's driving the other side
   HUD.tag[0].textContent = CHARS[MENU.chars[0]].kanji + " " + CHARS[MENU.chars[0]].name;
   HUD.tag[1].textContent = CHARS[MENU.chars[1]].kanji + " " + CHARS[MENU.chars[1]].name +
@@ -4450,7 +4486,7 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes,
                TOUR, SCHEDULE, RANKS, BASHO_DAYS, tourStart, tourBeginDay,
                tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips,
-               TEAM, MAWASHI, MAWASHI_KANJI, livery, applyChars, setFoeLivery,
+               TEAM, MAWASHI, MAWASHI_KANJI, mawashiOf, livery, applyChars, setFoeLivery,
                setMeLivery, aiStep, KEYS, CTRL,
                POINTC, PC_CLASSES, PC_CROPS, PC_SIZE, pcLoadDeps, pcFeatures,
                pcForward, pcVec, pcSync, pcAvailable, startPointing, stopPointing };
