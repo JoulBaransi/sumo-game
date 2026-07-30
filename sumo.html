@@ -46,6 +46,17 @@
     transition:background .25s,box-shadow .25s}
   .p1 .pip.on{background:var(--p1);box-shadow:0 0 10px rgba(var(--p1g),.9)}
   .p2 .pip.on{background:var(--p2);box-shadow:0 0 10px rgba(var(--p2g),.9)}
+  /* Dash readiness. A cooldown you cannot see is just the game ignoring you, so
+     it gets a bar — but only in chaos, and it takes no vertical space otherwise. */
+  .dashbar{width:100px;height:3px;margin-top:7px;border-radius:2px;
+    background:rgba(255,255,255,.14);overflow:hidden;display:none}
+  #hud.chaos .dashbar{display:block}
+  .p2 .dashbar{align-self:flex-end}
+  .dashbar i{display:block;height:100%;width:100%;border-radius:2px;
+    transform-origin:left center}
+  .p2 .dashbar i{transform-origin:right center}
+  .p1 .dashbar i{background:var(--p1l)}
+  .p2 .dashbar i{background:var(--p2l)}
   .keycap{margin-top:9px;font-size:10px;font-weight:700;letter-spacing:.16em;
     color:rgba(255,255,255,.32)}
 
@@ -312,6 +323,7 @@
         <div class="bname" id="bn1">BLUE</div>
         <div class="bscore" id="s1">0</div>
         <div class="pips" id="pip1"></div>
+        <div class="dashbar"><i id="dash1"></i></div>
         <div class="keycap" id="tag1">嵐 ARASHI</div>
       </div>
     </div>
@@ -322,6 +334,7 @@
         <div class="bname" id="bn2">RED</div>
         <div class="bscore" id="s2">0</div>
         <div class="pips" id="pip2"></div>
+        <div class="dashbar"><i id="dash2"></i></div>
         <div class="keycap" id="tag2">嵐 ARASHI</div>
       </div>
     </div>
@@ -350,7 +363,7 @@
       <div id="bHint"></div>
     </div>
 
-    <div id="foot">HOLD TO SLIDE · MOMENTUM IS EVERYTHING · <span style="color:rgba(255,255,255,.5)">SPACE</span> NEXT ROUND · <span style="color:rgba(255,255,255,.5)">P</span> PAUSE · <span style="color:rgba(255,255,255,.5)">M</span> MUTE · <span style="color:rgba(255,255,255,.5)">R</span> RESTART</div>
+    <div id="foot"></div>
     <div id="menu">
       <div class="mTop">
         <div id="mKanji">相撲</div>
@@ -1342,6 +1355,57 @@ const CFG = {
    multiplier, so a HIGHER number means longer slides. */
 const SURF = { fric: CFG.fric };
 
+/* ── chaos rules ──
+   Two verbs and one rule change, all of them still on the x/z plane.
+
+   DASH is the real addition. This game is about momentum — commit, land the
+   shove, don't sail out yourself — and a dash is that turned up: a burst you
+   spend, paid for with frames where you cannot steer. `imp` is a multiple of the
+   body's own acceleration, so the light body dashes furthest and the heavy one
+   least, exactly as their walking already works. At 11x it adds about half of
+   terminal speed and carries a shade over two units, on a ring of radius 4.55.
+
+   HOP is a dodge, not a jump. The whole game is 2D on x/z and only rendering
+   ever uses the third dimension; a real jump would need airborne shoves and
+   vertical collision, which is 3D physics and the one line this codebase is
+   built around not crossing. So the arc is cosmetic and what it actually does is
+   a RULE: while you are off the clay the two of you cannot collide, so a charge
+   passes underneath. The edge test still reads x/z alone, which means hopping
+   over the straw bales ejects you exactly as walking over them would. Air
+   steering is cut hard so the arc is a commitment too.
+
+   The ring does not close in chaos. That is the "bigger arena" — not a wider
+   one, which the fixed camera cannot frame, but one that keeps its full radius
+   for the whole round instead of shrinking to 1.75. */
+const CHAOS = {
+  imp: 11,            // dash impulse, as a multiple of this body's accel
+  cd: 45,             // frames before you can dash again
+  lock: 12,           // frames after a dash with no steering — the commitment
+  hopDur: 34,         // frames in the air
+  /* At 0.92 the arc was there but you had to look for it: the shadow does detach
+     and slide off down-light, which is the only cue that says airborne, and half a
+     body height barely moved it. This is a dodge you have to time, so it has to be
+     unmistakable — and the height is free, since nothing but the renderer and the
+     shadow ever reads it. */
+  hopPeak: 1.5,
+  /* Longer than hopDur, because nothing collides with an airborne fighter and a
+     short gap would leave a hop-spammer untouchable: at 50 they were off the clay
+     two thirds of the time. At 64 it is closer to half, with a clear half-second
+     on the ground between hops where a shove can land. */
+  hopCd: 64,
+  air: 0.35,          // steering authority while off the clay
+
+  /* The ring closing is what guarantees a round ENDS, and taking it out took that
+     guarantee with it: simulated against a clumsy stand-in player, two out of 210
+     chaos rounds were still going at ninety seconds, which in a real game means
+     never. So the ring holds its full radius for twenty seconds — longer than all
+     but the most drawn-out rounds, average measured at ten to twenty-six — and
+     then closes about twice as fast as usual. The promise holds where it matters
+     and a stalemate still gets settled. */
+  hold: 1200,         // frames at full radius before the clay gives at all
+  close: 0.010,       // then it comes in at better than twice the classic rate
+};
+
 /* ── the roster ──
    Bodies differ in mass, reach, acceleration and grip. Terminal speed works out
    to accel/(1-fric), so the light one both accelerates and slides further. */
@@ -1390,22 +1454,33 @@ const AI_FACE = [
 
    Index 3 is deliberately below EASY and is not offered in the VS AI menu — it
    exists so the opening day of a basho can be a genuine warm-up. The difficulty
-   row still cycles the first three, which is what EASY/MEDIUM/HARD should mean. */
+   row still cycles the first three, which is what EASY/MEDIUM/HARD should mean.
+
+   dashOdds and hopOdds are per-decision chances of using the chaos verbs, and
+   they only ever apply in that mode. They climb with the tier for the same reason
+   everything else does: knowing WHEN is the skill. */
 const AI_TIERS = [
   { label: "EASY",   name: "RIKISHI",   kanji: "力士",   react: 16, predict: 0,
-    edge: 0.86, jitter: 0.22, every: 8,  bait: 0.00, idle: 0.00 },
+    edge: 0.86, jitter: 0.22, every: 8,  bait: 0.00, idle: 0.00,
+    dashOdds: 0.10, hopOdds: 0.04 },
   { label: "MEDIUM", name: "SEKIWAKE",  kanji: "関脇",   react: 14, predict: 5,
-    edge: 0.71, jitter: 0.19, every: 6,  bait: 0.20, idle: 0.00 },
+    edge: 0.71, jitter: 0.19, every: 6,  bait: 0.20, idle: 0.00,
+    dashOdds: 0.26, hopOdds: 0.14 },
   { label: "HARD",   name: "YOKOZUNA",  kanji: "横綱",   react: 3,  predict: 30,
-    edge: 0.47, jitter: 0.03, every: 2,  bait: 0.85, idle: 0.00 },
+    edge: 0.47, jitter: 0.03, every: 2,  bait: 0.85, idle: 0.00,
+    dashOdds: 0.55, hopOdds: 0.40 },
   { label: "NOVICE", name: "JONOKUCHI", kanji: "序ノ口", react: 26, predict: 0,
-    edge: 0.93, jitter: 0.34, every: 14, bait: 0.00, idle: 0.30 },
+    edge: 0.93, jitter: 0.34, every: 14, bait: 0.00, idle: 0.30,
+    dashOdds: 0.04, hopOdds: 0.02 },
 ];
 
 const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
 /* Settings persist across bouts. map = -1 means the venues rotate one per round,
    which is the default; any other value pins a single venue. */
-const OPT = { map: -1, music: true, rounds: 5, point: false, mawashi: [0, 0] };
+const OPT = { map: -1, music: true, rounds: 5, point: false, mawashi: [0, 0],
+              chaos: false };
+// chaos is off during a basho: that record is set under the normal rules
+const chaosOn = () => OPT.chaos && !TOUR.on;
 
 /* ── the basho ──
    A real tournament runs fifteen days, one bout a day, and you fight every day
@@ -1467,6 +1542,8 @@ function makeFighter(i) {
     team: TEAM[i], idx: i,
     char: CHARS[1], mass: 1, hitR: CFG.hitR,   // ── body, set by applyChars ──
     accel: CFG.accel, fricAdj: 0, scale: CFG.rigScale,
+    dashCd: 0, dashT: 0, hopT: 0, hopCd: 0,       // ── chaos verbs ──
+    dashHeld: false, hopHeld: false,
     x: 0, z: 0, vx: 0, vz: 0,           // ── 2D physics state ──
     y: 0, vy: 0,                        // ── render / fall only ──
     alive: true, falling: false, landed: false, fallT: 0,
@@ -1482,9 +1559,14 @@ function makeFighter(i) {
 const F = [makeFighter(0), makeFighter(1)];
 
 const KEYS = {};
+/* Chaos adds two keys a side, placed so each player keeps one hand where it
+   already was: left pinky and thumb for WASD, and the two keys sitting under the
+   arrow cluster for the arrows. */
 const CTRL = [
-  { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD" },
-  { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" },
+  { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD",
+    dash: "ShiftLeft", hop: "Space" },
+  { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
+    dash: "ShiftRight", hop: "Slash" },
 ];
 const BLOCKED = new Set(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"]);
 
@@ -1703,6 +1785,21 @@ function sndShove(k) {
   const K = clamp(k, 0.2, 2.6);
   nz({ f: 760, f1: 190, q: 0.7, type: "lowpass", dur: 0.15, gain: 0.09 + K * 0.04 });
   tn({ f: 112, f1: 40, dur: 0.19, gain: 0.12 + K * 0.05 });
+}
+
+/* The two chaos verbs. A dash is a hard exhale plus the grit of one foot pushing
+   off, kept dry and short so it reads as effort rather than as magic; the hop is
+   the same idea an octave up and lighter, with a rising sweep so it goes UP where
+   the dash goes forward. Both stay well under a body clash — they are what sets
+   up a hit, not the hit. */
+function sndDash() {
+  nz({ f: 340, f1: 1500, q: 0.8, dur: 0.16, gain: 0.19, atk: 0.008 });
+  nz({ f: 2600, f1: 900, q: 1.2, dur: 0.09, gain: 0.09, atk: 0.002 });
+  tn({ f: 150, f1: 66, dur: 0.14, gain: 0.10, type: "triangle" });
+}
+function sndHop() {
+  nz({ f: 700, f1: 2400, q: 1.0, dur: 0.13, gain: 0.11, atk: 0.006 });
+  tn({ f: 210, f1: 430, dur: 0.15, gain: 0.075, type: "triangle", atk: 0.01 });
 }
 
 /* Losing the ring is how every round ends, so it gets the biggest gesture in the
@@ -2012,6 +2109,8 @@ const HUD = {
   bSub: document.getElementById("bSub"),
   bHint: document.getElementById("bHint"),
   gear: document.getElementById("gear"),
+  foot: document.getElementById("foot"),
+  dashBar: [document.getElementById("dash1"), document.getElementById("dash2")],
   pcam: document.getElementById("pcam"),
   pcamVideo: document.getElementById("pcamVideo"),
   pcamCanvas: document.getElementById("pcamCanvas"),
@@ -2050,6 +2149,39 @@ function syncHUD(bumpIdx) {
     ? "DAY " + (TOUR.day + 1) + "/" + BASHO_DAYS + " · " + TOUR.wins + "–" + TOUR.losses +
       " · ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin
     : "ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin;
+  syncFoot();
+}
+
+const kbd = s => '<span style="color:rgba(255,255,255,.5)">' + s + "</span>";
+
+/* The bottom hint has to name the chaos keys when they exist and stay quiet when
+   they don't, and it can only name them once the mode is known — so it is built,
+   not written. The class on #hud is what reveals the dash bars. */
+function syncFoot() {
+  const on = chaosOn();
+  HUD.hud.classList.toggle("chaos", on);
+  /* With two humans there are four keys to name, so it becomes a pair per side
+     rather than a key per verb — spelling both out one verb at a time ran to
+     "SPACE / / HOP", which is not a sentence. */
+  const keys = MENU.mode === 0
+    ? "DASH AND HOP · " + kbd("SHIFT") + "+" + kbd("SPACE") +
+      " · " + kbd("RSHIFT") + "+" + kbd("/")
+    : "DASH THROUGH THEM · HOP OVER A CHARGE · " +
+      kbd("SHIFT") + " DASH · " + kbd("SPACE") + " HOP";
+  HUD.foot.innerHTML = on
+    ? keys + " · " + kbd("P") + " PAUSE · " + kbd("M") + " MUTE · " + kbd("R") + " RESTART"
+    : "HOLD TO SLIDE · MOMENTUM IS EVERYTHING · " +
+      kbd("SPACE") + " NEXT ROUND · " + kbd("P") + " PAUSE · " +
+      kbd("M") + " MUTE · " + kbd("R") + " RESTART";
+}
+
+// dash readiness, every frame it can change
+function syncDash() {
+  for (let i = 0; i < 2; i++) {
+    const f = F[i], k = CHAOS.cd ? 1 - f.dashCd / CHAOS.cd : 1;
+    HUD.dashBar[i].style.transform = "scaleX(" + k.toFixed(3) + ")";
+    HUD.dashBar[i].style.opacity = f.dashCd ? 0.55 : 1;
+  }
 }
 
 let lastCd = -1;
@@ -2387,6 +2519,16 @@ function ovRows() {
       set: d => { if (TOUR.on) return;      // the schedule owns this during a basho
                   CFG.roundsToWin = clamp(CFG.roundsToWin + d, 1, 9);
                   OPT.rounds = CFG.roundsToWin; rebuildPips(); } },
+    /* Chaos lives here rather than as a fourth MODE, for two reasons: it is
+       orthogonal to who you are fighting — you would want it against a human or
+       the AI — and the menu is already six rows deep, where a seventh broke the
+       layout in a short window. It is hidden during a basho, whose record should
+       mean one thing. */
+    ...(TOUR.on ? [] : [{
+      lbl: "RULES", val: OPT.chaos ? "CHAOS" : "CLASSIC",
+      note: OPT.chaos ? "dash, hop, and the ring holds"
+                      : "push them out, the ring closes",
+      set: () => { OPT.chaos = !OPT.chaos; syncFoot(); } }]),
     /* Pointing control sits here rather than on the main menu because it is a
        preference, not part of choosing a bout — and it only appears for VS AI,
        since two players cannot share one camera. */
@@ -2565,6 +2707,8 @@ function startRound() {
     f.tumble = 0; f.spin = 0; f.lean = 0; f.leanX = 0; f.leanZ = 0;
     f.step = 0; f.bob = 0; f.squash = 0; f.thrust = 0; f.hitFlash = 0; f.scuffT = 0;
     f.cel = 0; f.celOn = false; f.celPuff = false;
+    f.dashCd = 0; f.dashT = 0; f.hopT = 0; f.hopCd = 0;
+    f.dashHeld = false; f.hopHeld = false;
     f.ghosts.length = 0;
   }
   HUD.banner.classList.remove("on");
@@ -2635,6 +2779,49 @@ function endRound(winner) {
 
 /* ═════════════════════════════ SIMULATION (2D) ═════════════════════════════ */
 
+// off the clay: no collisions either way, and barely any steering
+const airborne = f => f.hopT > 0;
+
+/* Both verbs are edge-triggered off the same held-key map everything else reads,
+   so the AI gets them by writing KEYS exactly as it already writes directions. */
+function chaosVerbs(f, k, ix, iz) {
+  if (f.dashCd > 0) f.dashCd--;
+  if (f.hopCd > 0) f.hopCd--;
+  if (f.dashT > 0) f.dashT--;
+
+  const dashDown = !!KEYS[k.dash], hopDown = !!KEYS[k.hop];
+  const dashPress = dashDown && !f.dashHeld, hopPress = hopDown && !f.hopHeld;
+  f.dashHeld = dashDown; f.hopHeld = hopDown;
+
+  if (dashPress && f.dashCd === 0 && !airborne(f)) {
+    // no direction held: go where the body is already facing
+    let dx = ix, dz = iz;
+    if (!dx && !dz) { dx = -Math.sin(f.yaw); dz = Math.cos(f.yaw); }
+    const m = Math.hypot(dx, dz) || 1;
+    const imp = f.accel * CHAOS.imp;
+    f.vx += (dx / m) * imp; f.vz += (dz / m) * imp;
+    f.dashCd = CHAOS.cd; f.dashT = CHAOS.lock;
+    f.squash = Math.max(f.squash, 0.7); f.thrust = 1;
+    dust(f.x - dx / m * 0.3, CFG.deck + 0.03, f.z - dz / m * 0.3, 9, 0.03);
+    sndDash();
+  }
+  if (hopPress && f.hopCd === 0 && !airborne(f)) {
+    f.hopT = CHAOS.hopDur; f.hopCd = CHAOS.hopCd;
+    dust(f.x, CFG.deck + 0.02, f.z, 7, 0.018);
+    sndHop();
+  }
+  if (f.hopT > 0) {
+    f.hopT--;
+    // a plain half-sine arc: leaves and lands at zero with no seam
+    f.y = Math.sin(Math.PI * (1 - f.hopT / CHAOS.hopDur)) * CHAOS.hopPeak;
+    if (f.hopT === 0) {
+      f.y = 0;
+      dust(f.x, CFG.deck + 0.02, f.z, 11, 0.022);
+      sndLand(0.5);
+    }
+  }
+}
+
 function drive(f) {
   const k = CTRL[f.idx];
   let ix = (KEYS[k.right] ? 1 : 0) - (KEYS[k.left] ? 1 : 0);
@@ -2649,10 +2836,20 @@ function drive(f) {
     ix = POINTC.vec[0]; iz = POINTC.vec[1];
   }
 
-  if (ix || iz) {
+  /* The dash and the hop are both commitments: for the frames after a dash you
+     have no say at all, and in the air you have almost none. That is the whole
+     price of them, and it is what keeps the mode a game rather than a scribble. */
+  let auth = 1;
+  if (chaosOn()) {
+    chaosVerbs(f, k, ix, iz);
+    if (f.dashT > 0) auth = 0;
+    else if (airborne(f)) auth = CHAOS.air;
+  }
+
+  if ((ix || iz) && auth > 0) {
     const m = Math.hypot(ix, iz); ix /= m; iz /= m;
-    f.vx += ix * f.accel;
-    f.vz += iz * f.accel;
+    f.vx += ix * f.accel * auth;
+    f.vz += iz * f.accel * auth;
     f.leanX = lerp(f.leanX, ix, 0.16);
     f.leanZ = lerp(f.leanZ, iz, 0.16);
   } else {
@@ -2723,6 +2920,28 @@ function aiStep() {
   const [dx, dz] = AI.dir;
   KEYS[k.right] = dx >  0.34; KEYS[k.left] = dx < -0.34;
   KEYS[k.down]  = dz >  0.34; KEYS[k.up]   = dz < -0.34;
+
+  /* In chaos it gets the same two verbs you do, and it has to: a mode whose whole
+     point is a dash would otherwise hand you a free win over an opponent that
+     only walks. Both are written as key presses through the same map, so the
+     decision quality stays the only thing a tier changes. The keys are released
+     every frame, which is what makes them the single taps the edge trigger wants. */
+  KEYS[k.dash] = false; KEYS[k.hop] = false;
+  if (!chaosOn()) return;
+
+  const gap = Math.hypot(you.x - me.x, you.z - me.z);
+  const aimed = gap > 0 &&
+    ((you.x - me.x) * dx + (you.z - me.z) * dz) / gap > 0.72;   // pointing at them
+  // dash to close the last stride, and only when the shove would land
+  if (aimed && gap < 2.6 && gap > 0.9 && Math.random() < T.dashOdds)
+    KEYS[k.dash] = true;
+
+  // hop out from under a charge — the same read the sidestep bait already makes
+  const h = AI.hist[Math.max(0, AI.hist.length - 1 - T.react)];
+  const away = Math.hypot(me.x - h.x, me.z - h.z) || 1;
+  const closing = (h.vx * (me.x - h.x) + h.vz * (me.z - h.z)) / away;
+  if (closing > 0.10 && gap < 2.2 && Math.random() < T.hopOdds)
+    KEYS[k.hop] = true;
 }
 
 /* ═════════════════════════ POINTING CONTROL ═════════════════════════
@@ -3247,14 +3466,20 @@ function step() {
   }
 
   G.roundT++;
+  /* In chaos the ring holds its full radius rather than closing from the start —
+     that is the bigger arena. It still closes eventually, and fast, because
+     otherwise nothing makes a round end. */
+  const chaos = chaosOn();
+  const delay = chaos ? CHAOS.hold : CFG.shrinkDelay;
+  const rate  = chaos ? CHAOS.close : CFG.shrinkRate;
   // one-shot as the ring starts to close: a low swell under the warning
-  if (G.roundT === CFG.shrinkDelay + 1) {
+  if (G.roundT === delay + 1) {
     tn({ f: 62, f1: 116, dur: 1.5, gain: 0.16, atk: 0.7, type: "triangle" });
     sndClack(0.7, 0.7);
   }
-  if (G.roundT > CFG.shrinkDelay) {
+  if (G.roundT > delay) {
     const was = G.radius;
-    G.radius = Math.max(CFG.minR, G.radius - CFG.shrinkRate);
+    G.radius = Math.max(CFG.minR, G.radius - rate);
     if (was > CFG.minR) HUD.warn.classList.add("on");
     if (G.radius > CFG.minR && G.roundT % 53 === 0)     // clay groaning inward
       tn({ f: 78 + srand() * 26, f1: 52, dur: 0.7, gain: 0.05, atk: 0.25, type: "triangle" });
@@ -3266,7 +3491,10 @@ function step() {
 
   if (AI.on && F[1].alive && F[0].alive) aiStep();
   for (const f of F) if (f.alive) drive(f);
-  if (F[0].alive && F[1].alive) collide(F[0], F[1]);
+  if (chaosOn()) syncDash();
+  // a charge passes under a hop; on landing the usual overlap push takes over
+  if (F[0].alive && F[1].alive && !airborne(F[0]) && !airborne(F[1]))
+    collide(F[0], F[1]);
 
   // ── edge test: centre outside the radius ──
   let fell = 0;
@@ -4488,6 +4716,7 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips,
                TEAM, MAWASHI, MAWASHI_KANJI, mawashiOf, livery, applyChars, setFoeLivery,
                setMeLivery, aiStep, KEYS, CTRL,
+               CHAOS, chaosOn, airborne, syncFoot, syncDash, sndDash, sndHop,
                POINTC, PC_CLASSES, PC_CROPS, PC_SIZE, pcLoadDeps, pcFeatures,
                pcForward, pcVec, pcSync, pcAvailable, startPointing, stopPointing };
 </script>
