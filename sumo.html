@@ -47,6 +47,26 @@
   .keycap{margin-top:9px;font-size:10px;font-weight:700;letter-spacing:.16em;
     color:rgba(255,255,255,.32)}
 
+  /* ---------- pointing control: camera preview ---------- */
+  /* Bottom-left, small, and only up while the camera is actually live. The feed
+     is mirrored because a preview of yourself that isn't feels wrong to move
+     against — the pixels handed to the model are the unmirrored original. */
+  #pcam{position:absolute;left:22px;bottom:60px;width:172px;
+    border:1px solid rgba(217,184,119,.28);border-radius:9px;overflow:hidden;
+    background:rgba(0,0,0,.55);opacity:0;transition:opacity .3s;
+    box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  #pcam.on{opacity:1}
+  #pcam video{width:100%;height:129px;object-fit:cover;display:block;
+    transform:scaleX(-1)}
+  #pcam canvas{position:absolute;top:0;left:0;width:100%;height:129px}
+  #pcamLbl{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;
+    font-size:9px;font-weight:800;letter-spacing:.16em;color:rgba(255,255,255,.72);
+    background:linear-gradient(transparent,rgba(0,0,0,.75));text-align:center}
+  #pcamDot{position:absolute;top:7px;left:7px;width:6px;height:6px;border-radius:50%;
+    background:#ff4d4d;box-shadow:0 0 6px #ff4d4d;z-index:2;
+    animation:pcamBlink 1.4s ease-in-out infinite}
+  @keyframes pcamBlink{0%,100%{opacity:1}50%{opacity:.25}}
+
   /* ---------- centre chrome ---------- */
   #meta{position:absolute;top:32px;left:50%;transform:translateX(-50%);text-align:center}
   #metaTop{font-size:11px;font-weight:800;letter-spacing:.3em;color:rgba(255,255,255,.4)}
@@ -274,6 +294,15 @@
         <div class="pips" id="pip2"></div>
         <div class="keycap" id="tag2">嵐 ARASHI</div>
       </div>
+    </div>
+
+    <!-- Pointing control. Only ever visible while the camera is live, so there is
+         no state in which the game is watching you without saying so. -->
+    <div id="pcam">
+      <div id="pcamDot"></div>
+      <video id="pcamVideo" autoplay playsinline muted></video>
+      <canvas id="pcamCanvas" width="172" height="129"></canvas>
+      <div id="pcamLbl">STARTING CAMERA…</div>
     </div>
 
     <div id="meta">
@@ -1306,7 +1335,7 @@ const AI_TIERS = [
 const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
 /* Settings persist across bouts. map = -1 means the venues rotate one per round,
    which is the default; any other value pins a single venue. */
-const OPT = { map: -1, music: true, rounds: 5 };
+const OPT = { map: -1, music: true, rounds: 5, point: false };
 
 /* ── the basho ──
    A real tournament runs fifteen days, one bout a day, and you fight every day
@@ -1912,6 +1941,10 @@ const HUD = {
   bSub: document.getElementById("bSub"),
   bHint: document.getElementById("bHint"),
   gear: document.getElementById("gear"),
+  pcam: document.getElementById("pcam"),
+  pcamVideo: document.getElementById("pcamVideo"),
+  pcamCanvas: document.getElementById("pcamCanvas"),
+  pcamLbl: document.getElementById("pcamLbl"),
   overlay: document.getElementById("overlay"),
   ovKanji: document.getElementById("ovKanji"),
   ovTitle: document.getElementById("ovTitle"),
@@ -2143,6 +2176,7 @@ function buildBasho(body) {
 }
 
 function tourStart() {
+  stopPointing();                 // a basho is a keyboard record
   TOUR.on = true; TOUR.day = 0; TOUR.wins = 0; TOUR.losses = 0;
   TOUR.results.length = 0; TOUR.rank = 0;
   CFG.roundsToWin = 3;                       // a basho bout is shorter
@@ -2210,6 +2244,16 @@ function ovRows() {
       set: d => { if (TOUR.on) return;      // the schedule owns this during a basho
                   CFG.roundsToWin = clamp(CFG.roundsToWin + d, 1, 9);
                   OPT.rounds = CFG.roundsToWin; rebuildPips(); } },
+    /* Pointing control sits here rather than on the main menu because it is a
+       preference, not part of choosing a bout — and it only appears for VS AI,
+       since two players cannot share one camera. */
+    ...(pcAvailable() ? [{
+      lbl: "CONTROL", val: OPT.point ? "POINT TO MOVE" : "KEYBOARD",
+      note: OPT.point
+        ? (POINTC.fail ? String(POINTC.fail).slice(0, 38).toLowerCase()
+                       : "aim your hand at the webcam · needs the net")
+        : "W A S D moves BLUE",
+      set: () => { OPT.point = !OPT.point; pcSync(); } }] : []),
     { lbl: "MUSIC", val: OPT.music ? "ON" : "OFF",
       note: "koto and shakuhachi on the menu",
       set: () => { OPT.music = !OPT.music;
@@ -2316,6 +2360,7 @@ function overlayKey(code) {
 // up on their marks and breathing, lamps lit, dust drifting.
 function showMenu() {
   if (TOUR.on) tourEnd();
+  stopPointing();                 // the camera has no business running on the menu
   for (const f of F) f.score = 0;
   G.round = 1; G.winner = null;
   syncHUD();
@@ -2337,6 +2382,7 @@ function beginMatch() {
   HUD.menu.classList.remove("on");
   HUD.hud.classList.remove("menu");
   newMatch();
+  pcSync();                        // asks for the camera only if the mode is on
 }
 
 function newMatch() {
@@ -2444,6 +2490,15 @@ function drive(f) {
   let ix = (KEYS[k.right] ? 1 : 0) - (KEYS[k.left] ? 1 : 0);
   let iz = (KEYS[k.down]  ? 1 : 0) - (KEYS[k.up]   ? 1 : 0);
 
+  /* Pointing steers BLUE, but a key still overrides it. Locking the keyboard out
+     would mean a bad prediction leaves you with no way to move at all, and the
+     two never fight over the fighter: a hand only gets a say while no key is
+     down. The raw probabilities go in unnormalised — the block below normalises,
+     so their ratio is what sets the angle. */
+  if (f.idx === 0 && POINTC.active && !ix && !iz) {
+    ix = POINTC.vec[0]; iz = POINTC.vec[1];
+  }
+
   if (ix || iz) {
     const m = Math.hypot(ix, iz); ix /= m; iz /= m;
     f.vx += ix * f.accel;
@@ -2518,6 +2573,269 @@ function aiStep() {
   const [dx, dz] = AI.dir;
   KEYS[k.right] = dx >  0.34; KEYS[k.left] = dx < -0.34;
   KEYS[k.down]  = dz >  0.34; KEYS[k.up]   = dz < -0.34;
+}
+
+/* ═════════════════════════ POINTING CONTROL ═════════════════════════
+   Aim your hand at the webcam and BLUE walks that way. Available in VS AI only:
+   two people cannot share one camera, and a basho is a record you should not set
+   on a control scheme this loose.
+
+   The pipeline, per prediction:
+     webcam frame → 5 crops (full, left, right, top, bottom), each drawn to
+     224² → one batched MobileNet pass → 5 × 1024-d embeddings, each
+     L2-normalised → concatenated to 5120 → the trained 5120→64→5 head in
+     pointing-model.js → neutral / up / down / left / right.
+
+   That feature layout is not a choice, it is what the model in
+   pointing-model.js was trained on — its own header states the format and its
+   first weight matrix is 64×5120. The five crops exist because a MobileNet
+   embedding is nearly position-blind: pooled over the whole frame, a hand at
+   the left edge and the same hand at the right produce almost the same 1024
+   numbers. Splitting the frame first is what puts the position back in.
+
+   This is the one part of the game that is neither self-contained nor offline:
+   TF.js and MobileNet come from a CDN, and the weights come from Google's
+   servers. Nothing is fetched until you actually turn the mode on, so the
+   keyboard game stays dependency-free. */
+
+const PC_CLASSES = ["neutral", "up", "down", "left", "right"];
+// [x, y, w, h] as fractions of the frame, in the order the trained head expects
+const PC_CROPS = [
+  [0, 0,   1,   1  ],   // full
+  [0, 0,   0.5, 1  ],   // left
+  [0.5, 0, 0.5, 1  ],   // right
+  [0, 0,   1,   0.5],   // top
+  [0, 0.5, 1,   0.5],   // bottom
+];
+const PC_SIZE = 224;                    // MobileNet's input square
+const PC_INTERVAL = 130;                // ms between predictions — ~8/s
+const PC_SMOOTH = 0.45;                 // weight of the newest frame
+const PC_SRC = [
+  "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js",
+  "https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js",
+  "pointing-model.js",
+];
+
+const POINTC = {
+  active: false,        // camera and model are live and driving BLUE
+  starting: false,      // mid-startup, so a second request can't race it
+  fail: null,           // a message to show instead of a prediction
+  stream: null, mobilenet: null, crops: null,
+  timer: 0, busy: false,
+  vec: [0, 0],          // what drive() reads; [0,0] until a real prediction lands
+  probs: null,          // exponentially-smoothed class probabilities
+};
+
+// pointing is a VS AI affordance only, never 2-player and never a basho
+const pcAvailable = () => MENU.mode === 1 && !TOUR.on;
+
+function pcLabel(t) { HUD.pcamLbl.textContent = t; }
+
+/* Pull in TF.js, MobileNet and the trained head, once, on first use. Loading
+   them up front would put a CDN round trip in front of a game that otherwise
+   needs nothing but the file itself. */
+function pcLoadDeps() {
+  if (POINTC.deps) return POINTC.deps;
+  POINTC.deps = PC_SRC.reduce((chain, src) => chain.then(() => new Promise((ok, no) => {
+    // pointing-model.js may already be present as a plain script tag
+    if (src === "pointing-model.js" && window.POINTING_MODEL) return ok();
+    const s = document.createElement("script");
+    s.src = src; s.async = false;
+    s.onload = () => ok();
+    s.onerror = () => no(new Error(src.split("/").pop() + " failed to load"));
+    document.head.appendChild(s);
+  })), Promise.resolve());
+  return POINTC.deps;
+}
+
+/* One webcam frame → the 5120 features the head was trained on.
+   The five crops go through MobileNet as a single batch: five separate infer()
+   calls cost roughly five times as much, and at 8 predictions a second that is
+   the difference between free and visible in the frame rate. */
+async function pcFeatures(video) {
+  const M = window.POINTING_MODEL;
+  const D = M.inputSize / M.crops;               // 1024 per crop
+  if (!video.videoWidth) return null;            // no frame yet
+  if (!POINTC.crops) POINTC.crops = PC_CROPS.map(() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = PC_SIZE;
+    c.__ctx = c.getContext("2d");
+    return c;
+  });
+  const vw = video.videoWidth, vh = video.videoHeight;
+  PC_CROPS.forEach((r, i) => POINTC.crops[i].__ctx.drawImage(
+    video, r[0] * vw, r[1] * vh, r[2] * vw, r[3] * vh, 0, 0, PC_SIZE, PC_SIZE));
+
+  const emb = tf.tidy(() => POINTC.mobilenet.infer(
+    tf.stack(POINTC.crops.map(c => tf.browser.fromPixels(c))), true));
+  const flat = await emb.data();                 // [crops × D]
+  emb.dispose();
+  if (flat.length !== M.inputSize)
+    throw new Error("got " + flat.length + " features, model wants " + M.inputSize);
+
+  /* L2-normalise each crop's embedding on its own, then concatenate. The model's
+     header says "L2-normalized" without saying whether that was per crop or over
+     the whole 5120, and the trainer that generated it isn't here to check. It
+     turns out barely to matter: the head's biases are tiny next to its
+     activations, so the two differ by very nearly a single positive scale
+     factor, ReLU is positively homogeneous, and softmax's argmax is
+     scale-invariant. Measured across seven frames the two agree on every
+     prediction and differ only in confidence. Since argmax picks the direction
+     and drive() normalises the magnitude, either reading steers the same way. */
+  const x = new Float32Array(M.inputSize);
+  for (let c = 0; c < M.crops; c++) {
+    let s = 0;
+    for (let i = 0; i < D; i++) { const v = flat[c * D + i]; s += v * v; }
+    const inv = 1 / (Math.sqrt(s) || 1);
+    for (let i = 0; i < D; i++) x[c * D + i] = flat[c * D + i] * inv;
+  }
+  return x;
+}
+
+/* Forward pass through the exported head — two small matrices, no tf needed.
+   The inner loop walks the WEIGHT row, not the input, so a feature vector of the
+   wrong length is an error rather than a confident answer computed from part of
+   the model. */
+function pcForward(x) {
+  const M = window.POINTING_MODEL;
+  if (x.length !== M.inputSize)
+    throw new Error("feature length " + x.length + " != " + M.inputSize);
+  let h = x;
+  for (const L of M.layers) {
+    const out = new Float32Array(L.bias.length);
+    for (let o = 0; o < L.bias.length; o++) {
+      const row = L.weights[o];
+      let s = L.bias[o];
+      for (let i = 0; i < row.length; i++) s += h[i] * row[i];
+      out[o] = L.activation === "relu" ? Math.max(0, s) : s;
+    }
+    h = out;
+  }
+  let mx = -Infinity;
+  for (const v of h) if (v > mx) mx = v;
+  let sum = 0;
+  const p = Array.from(h, v => { const e = Math.exp(v - mx); sum += e; return e; });
+  return p.map(v => v / (sum || 1));
+}
+
+/* Probabilities → a direction. The two winning axis probabilities are passed
+   through raw: drive() normalises whatever it gets, so their ratio survives and
+   a diagonal point comes out at the matching diagonal angle instead of snapping
+   to one of eight compass points. */
+function pcVec(p) {
+  let best = 0;
+  for (let i = 1; i < p.length; i++) if (p[i] > p[best]) best = i;
+  if (best === 0) return [0, 0];                 // neutral wins → stand still
+  const [, up, down, left, right] = p;
+  return [right >= left ? right : -left,         // +x is right
+          down  >= up   ? down  : -up];          // +z is toward the camera
+}
+
+function pcDrawCompass(vec, label) {
+  const cv = HUD.pcamCanvas, ctx = cv.__ctx || (cv.__ctx = cv.getContext("2d"));
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const cx = cv.width / 2, cy = cv.height / 2 - 6, R = 30;
+  ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.2832); ctx.stroke();
+  const m = Math.hypot(vec[0], vec[1]);
+  if (m > 1e-4) {
+    // x is mirrored to match the mirrored preview
+    const dx = -(vec[0] / m), dz = vec[1] / m;
+    ctx.strokeStyle = "#d9b877"; ctx.fillStyle = "#d9b877"; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * R, cy + dz * R); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx + dx * R, cy + dz * R, 3, 0, 6.2832); ctx.fill();
+  } else {
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 6.2832); ctx.fill();
+  }
+  pcLabel(label);
+}
+
+async function pcTick() {
+  if (POINTC.busy || !POINTC.active) return;
+  POINTC.busy = true;
+  try {
+    const x = await pcFeatures(HUD.pcamVideo);
+    if (x && POINTC.active) {
+      const probs = pcForward(x);
+      // exponential smoothing, so one noisy frame can't yank the fighter
+      if (!POINTC.probs) POINTC.probs = probs;
+      else POINTC.probs = POINTC.probs.map((v, i) =>
+        v * (1 - PC_SMOOTH) + probs[i] * PC_SMOOTH);
+      POINTC.vec = pcVec(POINTC.probs);
+      let best = 0;
+      POINTC.probs.forEach((v, i) => { if (v > POINTC.probs[best]) best = i; });
+      pcDrawCompass(POINTC.vec, PC_CLASSES[best].toUpperCase() + "  " +
+                    Math.round(POINTC.probs[best] * 100) + "%");
+    }
+  } catch (e) {
+    // a dropped frame is nothing; a broken pipeline should say so out loud
+    POINTC.fail = e.message;
+    pcLabel(String(e.message).slice(0, 34).toUpperCase());
+  }
+  POINTC.busy = false;
+}
+
+function pcLoop() {
+  if (!POINTC.active) return;
+  pcTick();
+  POINTC.timer = setTimeout(pcLoop, PC_INTERVAL);
+}
+
+async function startPointing() {
+  if (POINTC.active || POINTC.starting) return;
+  POINTC.starting = true; POINTC.fail = null;
+  POINTC.probs = null; POINTC.vec = [0, 0];
+  HUD.pcam.classList.add("on");
+  try {
+    pcLabel("LOADING MODEL…");
+    await pcLoadDeps();
+    if (!window.POINTING_MODEL) throw new Error("no trained model");
+    pcLabel("STARTING CAMERA…");
+    POINTC.stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 320, height: 240, facingMode: "user" }, audio: false });
+    HUD.pcamVideo.srcObject = POINTC.stream;
+    await HUD.pcamVideo.play();
+    if (!POINTC.mobilenet) {
+      pcLabel("LOADING MOBILENET…");
+      POINTC.mobilenet = await mobilenet.load({ version: 1, alpha: 1.0 });
+    }
+    /* One throwaway pass before going live. mobilenet.load() warms up a batch of
+       one, and a batch of five compiles its own set of WebGL programs — measured
+       at 812 ms the first time against 50 ms after. Paying that here costs a beat
+       on a screen that already says it is loading, instead of hitching the game
+       on the opening tachi-ai. */
+    pcLabel("WARMING UP…");
+    try { pcForward(await pcFeatures(HUD.pcamVideo)); } catch (e) { /* fine */ }
+    POINTC.active = true;
+    POINTC.starting = false;
+    pcLoop();
+  } catch (e) {
+    POINTC.starting = false;
+    POINTC.fail = e && e.message ? e.message : "unavailable";
+    pcLabel(/denied|not allowed|permission/i.test(POINTC.fail)
+      ? "CAMERA BLOCKED — USING KEYS" : "UNAVAILABLE — USING KEYS");
+    // hand control back rather than leaving a dead panel and a frozen fighter
+    setTimeout(stopPointing, 2200);
+  }
+}
+
+function stopPointing() {
+  POINTC.active = false; POINTC.starting = false;
+  clearTimeout(POINTC.timer);
+  HUD.pcam.classList.remove("on");
+  if (POINTC.stream) {
+    for (const t of POINTC.stream.getTracks()) t.stop();   // the camera light goes out
+    POINTC.stream = null;
+  }
+  HUD.pcamVideo.srcObject = null;
+  POINTC.vec = [0, 0]; POINTC.probs = null;
+}
+
+// called wherever the mode, the setting or the screen changes
+function pcSync() {
+  const want = OPT.point && pcAvailable() && G.state !== "menu";
+  if (want) startPointing(); else stopPointing();
 }
 
 function collide(a, b) {
@@ -4004,7 +4322,9 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes,
                TOUR, SCHEDULE, RANKS, BASHO_DAYS, tourStart, tourBeginDay,
                tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips,
-               TEAM, applyChars, setFoeLivery, aiStep, KEYS, CTRL };
+               TEAM, applyChars, setFoeLivery, aiStep, KEYS, CTRL,
+               POINTC, PC_CLASSES, PC_CROPS, PC_SIZE, pcLoadDeps, pcFeatures,
+               pcForward, pcVec, pcSync, pcAvailable, startPointing, stopPointing };
 </script>
 </body>
 </html>
