@@ -495,6 +495,12 @@ void main(){
 
   vec3 alb = uAlbedo;
 
+  /* Distance-based detail falloff, computed up front because both the surface
+     patterns and the noise want it. Fine detail far away is not just wasted
+     shader work — it aliases into crawling shimmer as the camera drifts. */
+  float dcam = length(uCam - vW);
+  float lod = 1.0 - smoothstep(15.0, 29.0, dcam);
+
   // the ground falls away from the pool of light over the dohyo; each venue
   // sets its own falloff, from a soft dojo wash to a hard arena spotlight
   if (uPool > 0.5){
@@ -545,21 +551,26 @@ void main(){
       // granite: coarse mineral speckle over a mottled base
       gm *= 0.86 + 0.34 * step(0.80, hash13(floor(vW * 19.0)))
                  + 0.16 * (fbm2(vW * 2.6) - 0.5);
-    } else {
-      // hiwadabuki — the cypress-bark roof of a yakata, laid in fine courses
+    } else if (uGrid < 8.5){
+      // hiwadabuki — a cypress-bark roof, laid in fine overlapping courses
       float band = gridDist(vW.y, 0.155);
       gm *= (0.90 + 0.17 * fbm2(vW * 4.5)) * mix(0.60, 1.0, smoothstep(0.0, 0.045, band));
+    } else {
+      /* snow: broad wind-drifted ridges, plus a sparse crystalline sparkle.
+         The ridges are stretched hard along one axis because wind-blown snow
+         forms in lines, and an isotropic noise reads as cottage cheese. */
+      float drift = fbm2(vec3(vW.x * 0.19, 0.0, vW.z * 0.62));
+      gm *= 0.90 + 0.17 * drift + 0.055 * sin((vW.x * 0.42 + drift * 5.5) * 2.1);
+      // Glints on a coarse grid (~7cm cells), faded out with distance. A finer
+      // grid looked correct in principle but each cell lands under a pixel, and
+      // sub-pixel sparkle is just crawling noise.
+      gm += 0.85 * lod * step(0.9955, hash13(floor(vW * 14.0)));
     }
     alb *= gm;
   }
 
-  /* Surface detail, faded out with distance. This is both the cheap thing and the
-     correct thing: the noise is the most expensive part of this shader and the
-     floor planes are 34 units across, but high-frequency tooth 30 units away also
-     aliases into shimmer as the camera drifts. Nobody can see gravel grain across
-     the hall anyway. */
-  float dcam = length(uCam - vW);
-  float lod = 1.0 - smoothstep(15.0, 29.0, dcam);
+  // Surface detail, on the same distance falloff. The noise is the most expensive
+  // part of this shader and the floor planes are 34 units across.
   if (lod > 0.01){
     // tonal mottling — the biggest thing separating a surface from a swatch
     if (uDet.x > 0.0){
@@ -929,7 +940,6 @@ const MESH = {
   disc:     buildDisc(64, 1),
   ring:     buildAnnulus(64, 0.955),
   band:     buildAnnulus(72, 0.875),
-  tier:     buildAnnulus(80, 0.79),
   shock:    buildAnnulus(48, 0.72),
   torus:    buildTorus(72, 14, 0.017),
   belt:     buildTorus(28, 12, 0.16),
@@ -1041,19 +1051,13 @@ const MAT = {
   // ── shrine grounds ──
   gravel:  { albedo: srgb("#6a6155"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1,
              det: [0.19, 2.6, 0.95, 10.0] },
-  stone:   { albedo: srgb("#6e6d69"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1, det: [0.14, 1.8, 0.42, 5.5] },
+  stone:   { albedo: srgb("#5c5b57"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1,
+             det: [0.16, 1.8, 0.46, 5.5] },
   stoneLt: { albedo: srgb("#8b8983"), spec: 0.14, shin: 36,  rim: 0.05, fog: 1, det: [0.14, 1.8, 0.42, 5.5] },
   vermil:  { albedo: srgb("#b0352a"), spec: 0.26, shin: 48,  rim: 0.08, fog: 1, det: [0.06, 1.2, 0.10, 4.0] },
   shide:   { albedo: srgb("#e6e2d8"), spec: 0.10, shin: 30,  rim: 0.06, fog: 1, det: [0.05, 2.0, 0.08, 6.0] },
   petal:   { albedo: srgb("#d9a7b0"), spec: 0.08, shin: 26,  rim: 0.04, fog: 1, det: [0.06, 3.0, 0.00, 0.0] },
   rope:    { albedo: srgb("#a89566"), spec: 0.10, shin: 26,  rim: 0.04, fog: 1, det: [0.14, 3.4, 0.60, 12.0] },
-
-  // ── grand arena ──
-  arenaFl: { albedo: srgb("#4a4034"), spec: 0.16, shin: 40,  rim: 0.03, fog: 1,
-             det: [0.13, 1.8, 0.40, 7.0] },
-  masu:    { albedo: srgb("#43402a"), spec: 0.05, shin: 20,  rim: 0.02, fog: 1,
-             det: [0.12, 1.4, 0.22, 5.0] },
-  tierWall:{ albedo: srgb("#191a20"), spec: 0.18, shin: 44,  rim: 0.04, fog: 1, det: [0.08, 1.0, 0.14, 4.0] },
 
   // ── bamboo grove ──
   moss:    { albedo: srgb("#3b4630"), spec: 0.08, shin: 24,  rim: 0.03, fog: 1,
@@ -1092,13 +1096,25 @@ const MAT = {
   chochin: { albedo: srgb("#c98a3e"), spec: 0.14, shin: 26, rim: 0.16, fog: 0,
              emis: [0.52, 0.24, 0.08], det: [0.09, 5.0, 0.10, 9.0] },
   chochRim:{ albedo: srgb("#2a1c10"), spec: 0.12, shin: 28, rim: 0.05, fog: 0 },
-  // arena
-  rail:    { albedo: srgb("#20222a"), spec: 0.30, shin: 60, rim: 0.07, fog: 1,
-             det: [0.08, 1.0, 0.14, 4.0] },
-  nobori:  { albedo: srgb("#8d7038"), spec: 0.10, shin: 26, rim: 0.06, fog: 1,
-             det: [0.10, 2.0, 0.18, 6.0] },
-  rig:     { albedo: [0, 0, 0], spec: 0, shin: 1, rim: 0, fog: 0,
-             emis: [2.9, 2.7, 2.3] },
+  /* snow courtyard.
+     Snow is not white paint: it is faintly blue in shadow, slightly translucent,
+     and it sparkles. The albedo stays under 1.0 so the bounce light and the
+     sparkle in grid mode 9 have somewhere to go instead of clipping. */
+  snow:    { albedo: srgb("#9fadc2"), spec: 0.15, shin: 44, rim: 0.16, fog: 1,
+             det: [0.11, 1.7, 0.60, 8.0] },
+  snowLo:  { albedo: srgb("#98a6bc"), spec: 0.12, shin: 36, rim: 0.13, fog: 1,
+             det: [0.13, 1.1, 0.52, 5.0] },
+  snowCap: { albedo: srgb("#adbbcf"), spec: 0.18, shin: 48, rim: 0.20, fog: 1,
+             det: [0.10, 2.4, 0.40, 9.0] },
+  iron:    { albedo: srgb("#1d1e22"), spec: 0.34, shin: 66, rim: 0.10, fog: 1,
+             det: [0.10, 2.2, 0.20, 7.0] },
+  coal:    { albedo: srgb("#3a1206"), spec: 0.10, shin: 24, rim: 0.06, fog: 0,
+             emis: [2.05, 0.72, 0.20] },
+  wellDark:{ albedo: srgb("#0a0d12"), spec: 0.04, shin: 20, rim: 0.02, fog: 1 },
+  flame:   { albedo: [0, 0, 0], spec: 0, shin: 1, rim: 0, fog: 0,
+             emis: [1.30, 0.42, 0.10] },
+  flameHot:{ albedo: [0, 0, 0], spec: 0, shin: 1, rim: 0, fog: 0,
+             emis: [1.60, 1.05, 0.45] },
   // grove
   leaf:    { albedo: srgb("#37492a"), spec: 0.14, shin: 32, rim: 0.12, fog: 1,
              det: [0.26, 2.2, 0.34, 5.0] },
@@ -1534,7 +1550,9 @@ const BEDS = {
   // high resonant chirps at a few Hz land close enough to night insects
   shrine: [{ f:  150, q: 0.5, gain: 0.024, type: "lowpass", lfo: 0.05, depth: 0.50 },
            { f: 4600, q: 5.0, gain: 0.009,                  lfo: 3.10, depth: 0.95 }],
-  arena:  [{ f:  260, q: 0.5, gain: 0.016, type: "lowpass", lfo: 0.08, depth: 0.40 }],
+  // snow deadens everything: a thin cold wind and almost no room tone at all
+  snow:   [{ f:  180, q: 0.5, gain: 0.014, type: "lowpass", lfo: 0.04, depth: 0.55 },
+           { f: 1450, q: 0.45, gain: 0.012,                 lfo: 0.09, depth: 0.75 }],
   grove:  [{ f: 1750, q: 0.5, gain: 0.026,                  lfo: 0.13, depth: 0.70 },
            { f:  260, q: 0.6, gain: 0.016, type: "lowpass", lfo: 0.07, depth: 0.50 }],
 };
@@ -1579,15 +1597,29 @@ function sndCrowd(amount, dur) {
    below are roughly those of a struck bronze plate; the top partials die first,
    which is what gives the shimmer that settles into a low hum. */
 function sndGong(gain) {
-  const g = gain === undefined ? 1 : gain, f0 = 74;
-  const par = [1, 2.39, 3.11, 4.16, 5.43, 6.71, 8.24, 10.9];
-  const amp = [1, 0.60, 0.46, 0.33, 0.24, 0.17, 0.11, 0.07];
-  for (let i = 0; i < par.length; i++)
-    tn({ f: f0 * par[i], dur: 4.2 - i * 0.34, gain: 0.20 * amp[i] * g,
-         atk: 0.010 + i * 0.006 });
-  nz({ f: 2300, f1: 620, q: 0.9, dur: 0.11, gain: 0.17 * g, atk: 0.001 });
-  nz({ f: 430, f1: 165, q: 0.6, dur: 1.10, gain: 0.10 * g, atk: 0.06 });
-  sndCrowd(0.45, 1.2);
+  const g = gain === undefined ? 1 : gain, f0 = 66;
+  const par = [0.5, 1, 2.39, 3.11, 4.16, 5.43, 6.71, 8.24, 10.9, 13.7];
+  const amp = [0.90, 1, 0.68, 0.54, 0.42, 0.31, 0.23, 0.16, 0.11, 0.07];
+  /* Levels are set so the strike lands just under a max-speed body slam and no
+     further. A first pass ran ~1.7x hotter and clipped the master outright —
+     which is not boldness, just distortion. What actually makes this read as a
+     big gong is the weight at the bottom, the five-second ring, and the beating;
+     the attacks are also spread more widely in time so the partials stop summing
+     coherently into one spike. */
+  for (let i = 0; i < par.length; i++) {
+    tn({ f: f0 * par[i], dur: 5.6 - i * 0.34, gain: 0.21 * amp[i] * g,
+         atk: 0.005 + i * 0.009 });
+    // A second stack detuned a touch beats against the first. That slow throb IS
+    // the shimmer of struck bronze — without it a pile of partials just sounds
+    // like an organ chord.
+    tn({ f: f0 * par[i] * 1.0055, dur: 5.2 - i * 0.32, gain: 0.125 * amp[i] * g,
+         atk: 0.011 + i * 0.009 });
+  }
+  tn({ f: 38, f1: 25, dur: 2.4, gain: 0.19 * g, atk: 0.025 });  // sub, felt not heard
+  nz({ f: 2700, f1: 500, q: 0.8, dur: 0.17, gain: 0.21 * g, atk: 0.0008 });
+  nz({ f: 720, f1: 140, q: 0.5, type: "lowpass", dur: 1.7, gain: 0.13 * g, atk: 0.05 });
+  sndCrowd(0.85, 1.7);
+  sndDuck(0.42, 0.12);            // the room drops back for the strike
 }
 
 /* ── menu music ──
@@ -2305,6 +2337,7 @@ function step() {
     if (r.life <= 0) rings.splice(i, 1);
   }
   for (const m of motes) m.p += 0.006;
+  if (MAPS[G.map].snow) stepFlakes();      // weather runs in every state
 
   for (const f of F) {
     if (f.hitFlash > 0) f.hitFlash--;
@@ -2362,12 +2395,13 @@ function step() {
     if (n !== lastCd) {
       lastCd = n;
       if (n > 0) {
-        if (n === 3) sndGong(1.0);               // rings on through the count
         showCount(String(n), false);
         sndTaiko(1 + (3 - n) * 0.07, 0.85);      // pitch rises 3 → 2 → 1
       } else {
+        // the gong lands ON the tachi-ai and rings out over the opening
         showCount("GO!", true);
-        sndTaiko(0.82, 1.25); sndClack(1.0, 0.9); sndCrowd(0.7, 1.1);
+        sndGong(1.0);
+        sndTaiko(0.80, 0.80); sndCrowd(0.7, 1.1);
         for (const f of F) dust(f.x, CFG.deck + 0.03, f.z, 10, 0.02);
       }
     }
@@ -2476,6 +2510,20 @@ function push(mesh, m, mat, opts) {
 const NO_DET = [0, 0, 0, 0];
 
 /* ---------- the studio ---------- */
+
+/* ---------- onlookers, shared by every venue that has any ---------- */
+
+// aiming a prop at the ring: a yaw of ry sends local +Z to (-sin ry, 0, cos ry)
+const aimYaw = (x, z) => Math.atan2(x, -z);
+
+/* Kept dark and close in value. People seen across a hall are a low-contrast
+   mass; separated saturated tones read as a tray of painted eggs. */
+const CROWD_MAT = ["#2a2622", "#232a2e", "#302623", "#20262a", "#2b2620",
+                   "#26232a", "#3a3026", "#212630", "#332a2c"].map(h => ({
+  albedo: srgb(h), spec: 0.015, shin: 18, rim: 0.02, fog: 1,
+  det: [0.16, 3.0, 0.24, 8.0] }));
+const CROWD_SKIN = ["#5c4634", "#4c3928", "#66503c", "#403022"].map(h => ({
+  albedo: srgb(h), spec: 0.02, shin: 18, rim: 0.015, fog: 1 }));
 
 /* Room dimensions are dictated by the 55° camera. The visible envelope narrows
    fast with depth — at z=-8 only the first 3.4 units above the floor are still on
@@ -2760,137 +2808,164 @@ function shrine() {
          MAT.petal, { cast: false });
 }
 
-/* ═══════════════════ VENUE 3 — GRAND ARENA (国技館) ═══════════════════ */
+/* ═══════════════════ VENUE 3 — SNOW COURTYARD (雪化粧) ═══════════════════ */
 
-const TIERS = [[9.6, 0.42], [12.1, 0.90], [14.6, 1.40]];
+/* This replaced a Grand Arena, and the reason it works where that one didn't is
+   worth stating: the arena's whole character lived in a crowd of ~1500 small
+   figures ringing the bowl, and this camera is the worst possible one for that.
+   Concentric arcs of near-identical shapes at 55° read as strings of beads no
+   matter how they are jittered or shaded, and the seating tiers themselves have
+   to occupy exactly the band of frame that collapses with depth.
+   A snow courtyard has the opposite property: everything that makes it what it
+   is lives in the GROUND PLANE and in a handful of low props, which is precisely
+   what this camera shows most of. Snow also brings a value structure the other
+   three venues don't have — a bright floor with dark props on it — so it reads
+   clean automatically, and the light bouncing UP off the snow gives the fighters
+   a completely different key from the warm hall, the night shrine and the misty
+   grove. */
 
-// aiming a rig at the ring: a yaw of ry sends local +Z to (-sin ry, 0, cos ry)
-const aimYaw = (x, z) => Math.atan2(x, -z);
+// Sparse, LARGE boulders standing out of the drifts. A few big rocks with space
+// between them is a deliberate composition; many small ones would be litter.
+const SNOW_ROCKS = [
+  { x: -8.6, z: -3.2, s: 1.9 }, { x: -11.4, z: -6.4, s: 1.4 },
+  { x:  9.2, z: -2.6, s: 2.1 }, { x:  11.8, z: -6.0, s: 1.5 },
+  { x: -6.9, z:  4.4, s: 1.2 }, { x:  7.4, z:  4.9, s: 1.35 },
+  { x: -2.8, z: -9.1, s: 1.15 }, { x: 3.4, z: -9.4, s: 1.0 },
+];
 
-/* A crowd is what turns three concentric rings into a venue. Each spectator is a
-   squashed body plus a head, and because the camera only ever sees the far arc of
-   the bowl, that is where they matter — the near arc is off the sides of frame. */
-// Kept deliberately dark and close in value. A crowd seen from the far side of a
-// hall is a low-contrast mass; the first pass used saturated, separated tones and
-// read as a tray of painted eggs.
-const CROWD_MAT = ["#2a2622", "#232a2e", "#302623", "#20262a", "#2b2620",
-                   "#26232a", "#322a22", "#212630", "#2c2523"].map(h => ({
-  albedo: srgb(h), spec: 0.015, shin: 18, rim: 0.02, fog: 1,
-  det: [0.16, 3.0, 0.24, 8.0] }));
-// Heads read as bright dots at this distance, so the skin tones are pulled well
-// down and the rim killed — a crowd should be a dark mass with faces implied.
-const CROWD_SKIN = ["#5c4634", "#4c3928", "#66503c", "#403022"].map(h => ({
-  albedo: srgb(h), spec: 0.02, shin: 18, rim: 0.015, fog: 1 }));
-
-/* Spectators are baked, and deliberately small: at roughly a unit across they
-   read as individual beans in neat radial arcs, which is exactly how the first
-   two passes looked. At a third of that size, four rows deep and jittered, the
-   same geometry reads as a packed crowd. That takes ~1500 figures, so they are
-   merged into one mesh per colour — a dozen draws for the whole hall. */
-const CROWD = (() => {
-  const bodies = CROWD_MAT.map(() => []);
-  const heads = CROWD_SKIN.map(() => []);
-  let n = 0;
-  for (let t = 0; t < TIERS.length; t++) {
-    const [r, h] = TIERS[t];
-    for (let row = 0; row < 4; row++) {
-      const rr0 = r * (0.775 + row * 0.052);
-      const count = Math.round(6.2832 * rr0 / 0.34);
-      for (let i = 0; i < count; i++) {
-        if (scatter() < 0.05) continue;                  // a few empty seats
-        const a = (i / count) * 6.2832
-                + (row * 0.42 + scatter() * 0.55) / count * 6.2832;
-        const rr = rr0 + (scatter() - 0.5) * 0.17;
-        const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-        if (z > 4.2) continue;      // front arc is level with or behind the lens
-        const sc = 0.88 + scatter() * 0.30;
-        const ry = aimYaw(x, z) + (scatter() - 0.5) * 0.75;
-        const y = h + (scatter() - 0.5) * 0.035;
-        bodies[(scatter() * bodies.length) | 0].push({ mesh: MESH.blob,
-          m: M4.trs(x, y + 0.115 * sc, z, 0, ry, 0,
-                    0.34 * sc, 0.23 * sc, 0.25 * sc) });
-        heads[(scatter() * heads.length) | 0].push({ mesh: MESH.blob,
-          m: M4.trs(x, y + 0.245 * sc, z, 0, ry, 0,
-                    0.115 * sc, 0.12 * sc, 0.115 * sc) });
-        n++;
-      }
+// Clipped shrubs buried under snow: a dark base with a white cap, small and
+// numerous, baked into two draws.
+const SNOW_DOMES = (() => {
+  const dark = [], caps = [];
+  for (let band = 0; band < 3; band++) {
+    const r0 = 9.8 + band * 1.15;
+    const count = 150 + band * 30;
+    for (let i = 0; i < count; i++) {
+      const a = -Math.PI * 0.5 + (i / (count - 1) - 0.5) * 4.7;
+      const r = r0 + (scatter() - 0.5) * 1.1;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (z > 3.4) continue;
+      const s = 0.46 + scatter() * 0.52, h = 0.30 + scatter() * 0.40;
+      dark.push({ mesh: MESH.blob,
+        m: M4.trs(x, h * 0.44, z, 0, scatter() * 3.14, 0, s, h, s * 0.9) });
+      caps.push({ mesh: MESH.blob,           // the snow sitting on top of it
+        m: M4.trs(x, h * 0.72, z, 0, scatter() * 3.14, 0, s * 0.94, h * 0.55, s * 0.86) });
     }
   }
-  return { n,
-    bodies: bodies.map((p, i) => ({ mesh: mergeMesh(p), mat: CROWD_MAT[i] })),
-    heads: heads.map((p, i) => ({ mesh: mergeMesh(p), mat: CROWD_SKIN[i] })) };
+  return [{ mesh: mergeMesh(dark), mat: MAT.tree },
+          { mesh: mergeMesh(caps), mat: MAT.snowCap }];
 })();
 
-// the five shinpan, seated in black at the ring apron — unmistakably sumo
-const SHINPAN = [0, 1, 2, 3, 4].map(i => {
-  const a = -Math.PI / 2 + (i - 2) * 0.62;
-  const x = Math.cos(a) * 6.6, z = Math.sin(a) * 6.6;
-  return { x, z, ry: aimYaw(x, z) };
-});
+/* Falling snow. The ambient motes only wobble in place, so snow gets its own
+   table: it has to fall, drift, and wrap round when it lands. Its own tiny RNG
+   keeps it off Math.random, which the AI's jitter draws from — otherwise
+   weather would silently change how the opponent plays. */
+let flakeSeed = 0x9e3779b9;
+function frand() {
+  flakeSeed ^= flakeSeed << 13; flakeSeed ^= flakeSeed >>> 17; flakeSeed ^= flakeSeed << 5;
+  return ((flakeSeed >>> 0) % 100000) / 100000;
+}
+const FLAKES = Array.from({ length: 340 }, () => ({
+  x: (frand() - 0.5) * 32, y: frand() * 13 - 1, z: (frand() - 0.5) * 24,
+  s: 0.020 + frand() * 0.055, a: 0.26 + frand() * 0.55,
+  vy: 0.016 + frand() * 0.030, dx: (frand() - 0.5) * 0.014,
+  p: frand() * 6.28, wob: 0.006 + frand() * 0.012,
+}));
+function stepFlakes() {
+  for (const f of FLAKES) {
+    f.p += 0.028;
+    f.y -= f.vy;
+    f.x += f.dx + Math.sin(f.p) * f.wob;
+    if (f.y < -CFG.deck - 0.3) {
+      f.y = 12.5 + frand() * 1.5;
+      f.x = (frand() - 0.5) * 32;
+      f.z = (frand() - 0.5) * 24;
+    }
+  }
+}
 
-function arena() {
-  push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.arenaFl,
+/* A well, curb only. This started as a covered well with a gabled roof, meant to
+   be the one silhouette in the set. It did not work: seen from 55° a gable roof
+   under a snow cap is a plain white quadrilateral, and reshaping it, shrinking
+   the cap and adding a ridge beam all failed to make it read as a roof.
+   The curb alone works precisely BECAUSE the camera looks down — a stone ring
+   with a dark shaft in the middle is unmistakable from above, and it sits in the
+   ground plane where this venue is strongest. */
+function snowWell(x, z) {
+  push(MESH.cyl, M4.trs(x, 0.24, z, 0, 0, 0, 1.85, 0.48, 1.85), MAT.stone,
+       { ao: 0.5, aoY: 0, grid: 7 });
+  push(MESH.torus, M4.trs(x, 0.47, z, 0, 0, 0, 1.95, 1.95, 1.95), MAT.snowCap,
+       { cast: false });                                     // snow along the rim
+  push(MESH.disc, M4.trs(x, 0.46, z, 0, 0, 0, 1.30, 1, 1.30), MAT.wellDark,
+       { cast: false });                                     // the shaft
+  // a bucket beam laid across it
+  push(MESH.box, M4.trs(x, 0.56, z, 0, 0.4, 0, 2.30, 0.10, 0.13), MAT.woodDark);
+}
+
+// kagaribi — an iron fire basket. The one warm accent in a cold set, and the
+// bloom pipeline does the rest.
+function kagaribi(x, z) {
+  for (let i = 0; i < 3; i++) {
+    const a = i / 3 * 6.2832;
+    push(MESH.box, M4.trs(x + Math.cos(a) * 0.26, 0.28, z + Math.sin(a) * 0.26,
+         Math.sin(a) * 0.22, 0, -Math.cos(a) * 0.22, 0.075, 0.58, 0.075),
+         MAT.iron, { ao: 0.4, aoY: 0 });
+  }
+  push(MESH.cyl, M4.trs(x, 0.66, z, 0, 0, 0, 0.92, 0.34, 0.92), MAT.iron);
+  push(MESH.cyl, M4.trs(x, 0.83, z, 0, 0, 0, 0.76, 0.10, 0.76), MAT.coal,
+       { cast: false, recv: false });
+  // a flame above the coals: without it the basket read as a dark pan with a
+  // yellow disc in it rather than as something burning
+  push(MESH.cone, M4.trs(x, 1.16, z, 0, 0, 0, 0.62, 0.78, 0.62), MAT.flame,
+       { cast: false, recv: false, blend: "add", alpha: 0.72 });
+  push(MESH.cone, M4.trs(x, 1.02, z, 0, 0, 0, 0.40, 0.48, 0.40), MAT.flameHot,
+       { cast: false, recv: false, blend: "add", alpha: 0.85 });
+}
+
+function snowfield() {
+  // ── the courtyard under snow ──
+  push(MESH.box, M4.trs(0, -0.06, 0, 0, 0, 0, 34, 0.12, 34), MAT.snow,
+       { cast: false, pool: true, grid: 9 });
+  // a drift banked up around the dohyo so the ring sits IN the snow, not on it
+  push(MESH.disc, M4.trs(0, 0.02, 0, 0, 0, 0, 12.6, 1, 12.6), MAT.snowLo,
        { cast: false, pool: true });
 
-  // masu-seki — concentric tiers of tatami box seats. Risers are front-face
-  // culled so we see the inside of the bowl and the near wall never blocks
-  // the ring.
-  for (const [r, h] of TIERS) {
-    const inner = r * 0.79;
-    push(MESH.cylOpen, M4.trs(0, h / 2, 0, 0, 0, 0, inner * 2, h, inner * 2),
-         MAT.tierWall, { cast: false, cull: gl.FRONT, pool: true });
-    push(MESH.tier, M4.trs(0, h, 0, 0, 0, 0, r * 2, 1, r * 2), MAT.masu,
-         { cast: false, grid: 3, pool: true });
-    // A timber lip on each tier edge is what makes the bowl read as stepped
-    // seating rather than a flat target. Scale the torus uniformly — stretching
-    // it on x/z alone gives an oval tube.
-    const S = inner * 2;
-    push(MESH.torus, M4.trs(0, h + 0.035, 0, 0, 0, 0, S, S, S), MAT.woodMid,
-         { cast: false, pool: true });
+  // ── low snow-capped wall enclosing the grounds ──
+  push(MESH.box, M4.trs(0, 0.50, -9.4, 0, 0, 0, 20.4, 1.00, 0.50), MAT.stone,
+       { cast: false, grid: 7 });
+  push(MESH.box, M4.trs(0, 1.06, -9.4, 0, 0, 0, 20.7, 0.16, 0.70), MAT.snowCap,
+       { cast: false });
+  for (const sx of [-1, 1]) {
+    push(MESH.box, M4.trs(sx * 10.0, 0.50, -5.6, 0, 0, 0, 0.50, 1.00, 7.9),
+         MAT.stone, { cast: false, grid: 7 });
+    push(MESH.box, M4.trs(sx * 10.0, 1.06, -5.6, 0, 0, 0, 0.70, 0.16, 8.1),
+         MAT.snowCap, { cast: false });
   }
 
-  // the baked crowd: one draw per colour group, ~1500 people
+  // ── shrubbery and boulders ──
   const I = M4.trs(0, 0, 0, 0, 0, 0, 1, 1, 1);
-  for (const g of CROWD.bodies)
-    push(g.mesh, I, g.mat, { cast: false, pool: true });
-  for (const g of CROWD.heads)
-    push(g.mesh, I, g.mat, { cast: false, pool: true });
-
-  // Seated in formal black: lap, torso, head. A single 0.66 sphere per judge read
-  // as a bowling ball parked on the apron.
-  for (const p of SHINPAN) {
-    push(MESH.sphereLo, M4.trs(p.x, 0.15, p.z, 0, p.ry, 0, 0.52, 0.26, 0.44),
-         MAT.woodDark, { ao: 0.50, aoY: 0 });
-    push(MESH.sphereLo, M4.trs(p.x, 0.37, p.z, 0, p.ry, 0, 0.38, 0.28, 0.30),
-         MAT.woodDark, { ao: 0.32, aoY: 0 });
-    push(MESH.sphereLo, M4.trs(p.x, 0.58, p.z, 0, p.ry, 0, 0.145, 0.155, 0.145),
-         CROWD_SKIN[1], { cast: false });
+  for (const g of SNOW_DOMES) push(g.mesh, I, g.mat, { cast: false, ao: 0.3, aoY: 0 });
+  for (const r of SNOW_ROCKS) {
+    push(MESH.sphereLo, M4.trs(r.x, r.s * 0.30, r.z, 0.18, r.x * 1.7, 0,
+         r.s, r.s * 0.82, r.s * 0.9), MAT.stone, { ao: 0.45, aoY: 0, grid: 7 });
+    // a cap on the crown only. Scaled any wider it swallows the rock and the
+    // whole thing reads as a snowball.
+    push(MESH.sphereLo, M4.trs(r.x, r.s * 0.56, r.z, 0.18, r.x * 1.7, 0,
+         r.s * 0.66, r.s * 0.30, r.s * 0.58), MAT.snowCap, { cast: false });
   }
 
-  /* Nobori — the sponsor banners. They live in the low band from z -7 to -10
-     because that is the only part of the far set the camera can still see. */
-  for (let i = -5; i <= 5; i++) {
-    const x = i * 1.75, z = -7.6 - (i % 2 ? 0.5 : 0);
-    push(MESH.box, M4.trs(x, 1.30, z, 0, 0, 0, 0.08, 2.60, 0.08), MAT.rail,
-         { cast: false });
-    push(MESH.quad, M4.trs(x, 1.42, z + 0.05, 0, 0, 0, 1.05, 2.00, 1),
-         i % 3 === 0 ? MAT.nobori : (i % 3 === 1 ? MAT.vermil : MAT.cushionB),
-         { cast: false, cull: "none" });
-  }
+  snowWell(-6.8, -5.7);
+  kagaribi(-6.4, 2.6); kagaribi(6.4, 2.6);
+  kagaribi(7.7, -3.0);
 
-  /* Overhead lighting. Solid ceiling geometry is impossible here — a fighter at
-     the back edge is seen along a sightline that passes y≈8.3 at z=+2, and the
-     top of frame there is only y≈10.1. Narrow fixtures slip into that gap. */
-  for (let i = -3; i <= 3; i++) {
-    const x = i * 3.1, z = 2.6, y = 10.0;
-    push(MESH.box, M4.trs(x, y, z, 0, 0, 0, 1.5, 0.16, 0.9), MAT.rail,
-         { cast: false, recv: false });
-    push(MESH.box, M4.trs(x, y - 0.16, z, 0, 0, 0, 1.25, 0.10, 0.72), MAT.rig,
-         { cast: false, recv: false });
+  // stepping stones trodden clear of snow, leading away from the ring
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6;
+    const x = lerp(3.0, 8.6, t) + Math.sin(t * 4.0) * 0.4;
+    const z = lerp(6.6, 2.6, t);
+    push(MESH.box, M4.trs(x, 0.05, z, 0, 0.3 + t, 0, 1.10, 0.10, 0.86),
+         MAT.flagst, { ao: 0.35, aoY: 0, grid: 7 });
   }
-  // the truss they hang from, running across the top of frame
-  push(MESH.box, M4.trs(0, 10.32, 2.6, 0, 0, 0, 21.0, 0.20, 0.34), MAT.rail,
-       { cast: false, recv: false });
 }
 
 /* ═══════════════════ VENUE 4 — BAMBOO GROVE (竹林) ═══════════════════ */
@@ -3019,14 +3094,18 @@ const MAPS = [
       sky: [0.12, 0.15, 0.27], gnd: [0.030, 0.028, 0.030], fog: [0.012, 0.016, 0.032],
       fogRange: [18, 36], pool: [3.4, 13.5, 0.38], exposure: 1.04, bloom: 0.92 } },
 
-  { name: "GRAND ARENA", kanji: "国技館", build: arena,
-    surf: "GRIPPED CLAY", fric: 0.9495,
-    sound: { bed: "arena", crowd: 1.00,
-      scuff: { f: 950, q: 0.6, type: "lowpass", dur: 0.065, gain: 0.105 } },
+  /* The one high-key venue. `gnd` is the down-facing hemisphere ambient and it is
+     set unusually bright here on purpose: snow throws light back UP, and that
+     bounce is the whole signature of the lighting — it fills the underside of the
+     fighters and makes them read differently from every other venue. */
+  { name: "SNOW COURTYARD", kanji: "雪化粧", build: snowfield, snow: true,
+    surf: "PACKED SNOW", fric: 0.9635,
+    sound: { bed: "snow", crowd: 0.06,
+      scuff: { f: 1250, q: 1.9, type: "bandpass", dur: 0.075, gain: 0.125 } },
     light: {
-      key: [1.16, 1.12, 1.05], fill: [0.22, 0.23, 0.29], back: [0.30, 0.31, 0.39],
-      sky: [0.18, 0.19, 0.23], gnd: [0.026, 0.026, 0.033], fog: [0.014, 0.014, 0.019],
-      fogRange: [20, 40], pool: [7.4, 16.5, 0.62], exposure: 0.96, bloom: 0.52 } },
+      key: [1.34, 1.31, 1.22], fill: [0.15, 0.21, 0.38], back: [0.20, 0.27, 0.44],
+      sky: [0.21, 0.29, 0.45], gnd: [0.13, 0.16, 0.23], fog: [0.40, 0.48, 0.62],
+      fogRange: [25, 46], pool: [5.5, 16.0, 0.32], exposure: 0.74, bloom: 0.74 } },
 
   // Mist has to start beyond the ring: the dohyo sits 15–20u from the camera, so
   // fog any closer than that washes out the gameplay area itself.
@@ -3325,11 +3404,15 @@ function drawParticles(proj, view) {
     gl.bufferData(gl.ARRAY_BUFFER, partData.subarray(0, n * 10), gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.TRIANGLES, 0, n);
   }
-  // sparks + dust motes (additive)
+  // sparks + dust motes (additive), plus weather when the venue has any
   const moteList = motes.map(m => ({
     x: m.x + Math.sin(m.p) * 0.35, y: m.y + Math.cos(m.p * 0.7) * 0.22, z: m.z,
     size: m.s, col: [1, 0.97, 0.9], life: m.a, add: true, glow: 1,
   }));
+  if (MAPS[G.map].snow) for (const f of FLAKES) moteList.push({
+    x: f.x, y: f.y, z: f.z, size: f.s, col: [0.90, 0.94, 1.0],
+    life: f.a, add: true, glow: 1,
+  });
   n = fillParticles(parts.concat(moteList), true);
   if (n) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
@@ -3571,7 +3654,8 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                sndScuff, sndVenue, sndToggle, sndShove, sndDuck, sndGong, BEDS,
                render, gl, MESH, push, ENV, lightVP, mergeMesh,
                OPT, OV, LOOKS, AI_FACE, MUS, musStart, musStop, koto, shaku,
-               openOverlay, closeOverlay, renderOverlay, ovRows, CROWD, HEDGE };
+               openOverlay, closeOverlay, renderOverlay, ovRows, HEDGE,
+               FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes };
 </script>
 </body>
 </html>
