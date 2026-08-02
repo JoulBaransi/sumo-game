@@ -138,6 +138,18 @@
     white-space:nowrap}
   .tkName.p1{color:#7fd0ff}
   .tkName.p2{color:var(--p2l)}
+  /* ---- the online connect card ---- */
+  .onLead{font-size:10px;font-weight:800;letter-spacing:.26em;
+    color:rgba(255,255,255,.42);margin-top:4px}
+  .onCode{display:flex;gap:10px;justify-content:center;margin-top:16px;
+    font-size:38px;font-weight:800;letter-spacing:.16em;color:#f4e8c8;
+    text-shadow:0 4px 24px rgba(0,0,0,.6)}
+  .onSlot{min-width:30px;text-align:center;color:#f4e8c8}
+  .onSlot.cur{color:#d9b877;animation:hintPulse 1.1s ease-in-out infinite}
+  .onStatus{margin-top:16px;font-size:10px;font-weight:800;letter-spacing:.24em;
+    color:rgba(217,184,119,.85)}
+  .onErr{margin-top:14px;font-size:10px;font-weight:800;letter-spacing:.2em;
+    color:#ff9a86}
   .tkRank{font-size:9px;font-weight:700;letter-spacing:.2em;color:#d9b877}
   .tkBar{width:1px;height:56px;
     background:linear-gradient(transparent,rgba(217,184,119,.5),transparent)}
@@ -1408,6 +1420,10 @@ window.addEventListener("keydown", e => {
       else if (e.code === "ArrowRight"|| e.code === "KeyD") menuChange(1);
     }
     else if (e.code === "Escape" || e.code === "KeyP") openOverlay("pause");
+    /* Online, the round flow belongs to the host alone. If the guest could
+       restart or advance, the two would be running different rounds until the
+       next snapshot dragged it back — so those keys simply do nothing there. */
+    else if (NET.on && NET.role === "guest") { /* host drives the bout */ }
     // R replays the current day; it must never reset the basho record
     else if (e.code === "KeyR") { if (TOUR.on) tourBeginDay(); else newMatch(); }
     else if (e.code === "Space") {
@@ -1957,17 +1973,26 @@ function showCount(txt, isGo) {
 /* ── menu options ──
    Rows are rebuilt on every change so DIFFICULTY can appear and disappear with
    the mode without any index bookkeeping. */
-const MODE_LABEL = ["2 PLAYER", "VS AI", "TOURNAMENT"];
+const MODE_LABEL = ["2 PLAYER", "VS AI", "TOURNAMENT", "ONLINE"];
 const MODE_NOTE = ["share the keyboard", "one keyboard, one human",
-                   "five days, one record"];
+                   "five days, one record", "a friend, wherever they are"];
 const CHAR_NOTE = ["heavy · slow · immovable", "even in every way",
                    "light · quick · skittish"];
 
 function menuRows() {
   const rows = [
     { lbl: "MODE", val: MODE_LABEL[MENU.mode], note: MODE_NOTE[MENU.mode],
-      get: () => MENU.mode, set: v => MENU.mode = (v + 3) % 3, n: 3 },
+      get: () => MENU.mode, set: v => MENU.mode = (v + 4) % 4, n: 4 },
   ];
+  /* Online picks its own opponent over the wire, so the menu offers only your
+     own body; the rest of the choosing happens on the connect card. */
+  if (MENU.mode === 3) {
+    const c = CHARS[MENU.chars[1]];
+    rows.push({ lbl: "YOUR RIKISHI", cls: "p2",
+      val: c.kanji + "  " + c.name, note: CHAR_NOTE[MENU.chars[1]],
+      get: () => MENU.chars[1], set: v => MENU.chars[1] = (v + 3) % 3, n: 3 });
+    return rows;
+  }
   if (MENU.mode === 1) {
     const T = AI_TIERS[MENU.diff];
     rows.push({ lbl: "DIFFICULTY", val: T.label,
@@ -2142,6 +2167,56 @@ function buildBasho(body) {
   if (promoted) TOUR.rank++;
 }
 
+/* ── the connect card ──
+   Hosting shows a code to read out; joining takes one. Nothing else: the whole
+   point is that two people get into a bout without an account between them. */
+function buildOnline(body) {
+  if (NET.role === "host") {
+    body.append(el("onLead", "READ THIS OUT TO YOUR FRIEND"));
+    body.append(el("onCode", NET.code || "…"));
+  } else if (NET.role === "guest") {
+    body.append(el("onLead", "JOINING"));
+    body.append(el("onCode", NET.code || "…"));
+  } else if (NET_ENTRY.on) {
+    body.append(el("onLead", "TYPE YOUR FRIEND'S CODE"));
+    const slots = el("onCode");
+    for (let i = 0; i < 5; i++)
+      slots.append(el("onSlot" + (i === NET_ENTRY.buf.length ? " cur" : ""),
+                      NET_ENTRY.buf[i] || "·"));
+    body.append(slots);
+    body.append(el("onStatus", "ENTER TO JOIN · ESC TO GO BACK"));
+    return;
+  } else {
+    body.append(el("onLead", "ONE OF YOU HOSTS, THE OTHER JOINS"));
+    if (NET.err) body.append(el("onErr", NET.err));
+  }
+  if (NET.status) body.append(el("onStatus", NET.status));
+}
+
+/* Code entry, deliberately five keystrokes and no text field: the overlay
+   already owns the keyboard, and a real input would fight it for focus. */
+const NET_ENTRY = { on: false, buf: "" };
+function netJoinPrompt() {
+  NET_ENTRY.on = true; NET_ENTRY.buf = "";
+  NET.err = ""; netStatus("TYPE THE CODE");
+  renderOverlay();
+}
+function netEntryKey(code) {
+  if (code === "Escape") { NET_ENTRY.on = false; netStatus(""); renderOverlay(); return true; }
+  if (code === "Backspace") { NET_ENTRY.buf = NET_ENTRY.buf.slice(0, -1); renderOverlay(); return true; }
+  if (code === "Enter" || code === "Space") {
+    if (NET_ENTRY.buf.length === 5) { NET_ENTRY.on = false; netJoin(NET_ENTRY.buf); }
+    return true;
+  }
+  const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(code);
+  if (m && NET_ENTRY.buf.length < 5) {
+    const ch = (m[1] || m[2]);
+    if (NET_ALPHABET.includes(ch)) { NET_ENTRY.buf += ch; sndClack(1.3, 0.3); renderOverlay(); }
+    return true;
+  }
+  return true;                       // swallow everything while typing a code
+}
+
 function tourStart() {
   TOUR.on = true; TOUR.day = 0; TOUR.wins = 0; TOUR.losses = 0;
   TOUR.results.length = 0; TOUR.rank = 0;
@@ -2190,13 +2265,29 @@ function ovRows() {
   if (OV.mode === "basho") return [
     { lbl: "RETURN TO MENU", act: () => { tourEnd(); closeOverlay(); showMenu(); } },
   ];
+  if (OV.mode === "online") {
+    if (NET.role === "host") return [
+      { lbl: "LEAVE", act: () => { netLeave(); netStatus(""); closeOverlay(); showMenu(); } },
+    ];
+    if (NET.role === "guest") return [
+      { lbl: "CANCEL", act: () => { netLeave(); netStatus(""); renderOverlay(); } },
+    ];
+    return [
+      { lbl: "HOST A GAME", act: () => netHost() },
+      { lbl: "JOIN WITH A CODE", act: () => netJoinPrompt() },
+      { lbl: "BACK", act: () => { closeOverlay(); showMenu(); } },
+    ];
+  }
   if (OV.mode === "pause") return [
     { lbl: "RESUME",     act: () => closeOverlay() },
     // inside a basho this replays the day only — the record is never touched
-    { lbl: TOUR.on ? "REPLAY THE DAY" : "RESTART",
-      act: () => { closeOverlay(); if (TOUR.on) tourBeginDay(); else newMatch(); } },
+    /* Only the host may restart an online bout, for the same reason the guest
+       cannot advance a round: two different rounds is not a game. */
+    ...(NET.on && NET.role === "guest" ? [] : [{
+      lbl: TOUR.on ? "REPLAY THE DAY" : "RESTART",
+      act: () => { closeOverlay(); if (TOUR.on) tourBeginDay(); else newMatch(); } }]),
     { lbl: "SETTINGS",   act: () => openOverlay("settings") },
-    { lbl: TOUR.on ? "LEAVE THE BASHO" : "MAIN MENU",
+    { lbl: NET.on ? "LEAVE THE GAME" : (TOUR.on ? "LEAVE THE BASHO" : "MAIN MENU"),
       act: () => { tourEnd(); closeOverlay(); showMenu(); } },
   ];
   // settings
@@ -2251,11 +2342,13 @@ function renderOverlay() {
     pause:     ["中断", "PAUSED"],
     torikumi:  ["取組", "TORIKUMI"],
     basho:     ["成績", "BASHO RESULT"],
+    online:    ["対戦", "PLAY A FRIEND"],
   }[OV.mode] || ["中断", "PAUSED"];
   HUD.ovKanji.textContent = HEAD[0];
   HUD.ovTitle.textContent = HEAD[1];
   if (OV.mode === "torikumi") buildTorikumi(HUD.ovBody);
   if (OV.mode === "basho") buildBasho(HUD.ovBody);
+  if (OV.mode === "online") buildOnline(HUD.ovBody);
   HUD.ovHint.innerHTML =
     OV.mode === "settings"
       ? '↑↓ SELECT · ←→ CHANGE · <span class="kbd">ESC</span> BACK'
@@ -2292,6 +2385,8 @@ HUD.gear.addEventListener("click", () => {
 });
 
 function overlayKey(code) {
+  // while a code is being typed the letters are the input, not menu navigation
+  if (OV.mode === "online" && NET_ENTRY.on) { netEntryKey(code); return; }
   const rows = ovRows();
   if (code === "ArrowUp"   || code === "KeyW") {
     OV.row = (OV.row - 1 + rows.length) % rows.length; sndClack(1.45, 0.3); renderOverlay(); }
@@ -2316,6 +2411,7 @@ function overlayKey(code) {
 // up on their marks and breathing, lamps lit, dust drifting.
 function showMenu() {
   if (TOUR.on) tourEnd();
+  if (NET.on) netLeave();          // leaving the ring ends the connection politely
   for (const f of F) f.score = 0;
   G.round = 1; G.winner = null;
   syncHUD();
@@ -2333,6 +2429,7 @@ function showMenu() {
 function beginMatch() {
   musStop();
   sndClack(0.85, 1.0); sndClack(0.85, 0.9, 0.10);   // the ring is called
+  if (MENU.mode === 3) { openOverlay("online"); return; }  // online opens on its card
   if (MENU.mode === 2) { tourStart(); return; }      // a basho opens on its card
   HUD.menu.classList.remove("on");
   HUD.hud.classList.remove("menu");
@@ -2435,6 +2532,12 @@ function endRound(winner) {
   }
   HUD.banner.classList.add("on");
   HUD.warn.classList.remove("on");
+  /* The guest never runs this function, so the words have to travel. Sending the
+     finished strings rather than a code keeps the two screens saying exactly the
+     same thing, including the colour of the name. */
+  if (NET.on && NET.role === "host")
+    netSend({ t: "banner", title: HUD.bTitle.textContent, col: HUD.bTitle.style.color,
+              sub: HUD.bSub.textContent, hint: HUD.bHint.innerHTML });
 }
 
 /* ═════════════════════════════ SIMULATION (2D) ═════════════════════════════ */
@@ -2518,6 +2621,282 @@ function aiStep() {
   const [dx, dz] = AI.dir;
   KEYS[k.right] = dx >  0.34; KEYS[k.left] = dx < -0.34;
   KEYS[k.down]  = dz >  0.34; KEYS[k.up]   = dz < -0.34;
+}
+
+/* ═════════════════════════════ ONLINE ═════════════════════════════
+   Two friends, one bout, no server of ours anywhere.
+
+   Transport is WebRTC straight between the two browsers. The only third party is
+   a signalling broker, used for a few seconds to swap connection details and
+   then never again — the bout itself is peer to peer. It is the free public
+   PeerJS broker, which needs no account, and everything is lazy-loaded so the
+   offline game stays a single file that fetches nothing.
+
+   The host owns the truth. It runs the same simulation it always has and ships a
+   snapshot every frame; the guest sends nothing but its four direction keys and
+   draws what it is told. That is deliberately not lockstep: the physics IS
+   deterministic — three identical replays matched to twelve decimal places — but
+   only on one machine. Math.sin and atan2 are allowed to differ in the last bit
+   between browser engines, and two friends are rarely on the same browser, so a
+   lockstep pair would drift apart with nothing to pull them back. One authority
+   and a snapshot has no such failure mode.
+
+   The cost is honest: the guest sees its own input a round trip late. On this
+   game that is survivable, because a bout is decided by momentum and commitment
+   rather than by frame-perfect taps. */
+
+const NET = {
+  on: false,            // an online bout is live
+  role: null,           // "host" or "guest"
+  peer: null, conn: null, deps: null,
+  code: "",             // the room code you read out to a friend
+  status: "",           // one line, shown on the connect card
+  err: "",
+  ping: 0, lastSeen: 0,
+  guestKeys: 0,         // newest input bitmask from the guest
+  snap: null,           // newest snapshot the guest has been sent
+  sentHello: false,
+};
+
+// no O/0/I/1 — this gets read out loud or typed from a screenshot
+const NET_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const netCode = () => Array.from({ length: 5 },
+  () => NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0]).join("");
+const netId = code => "sumo-dojo-" + code;
+
+const NET_SRC = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+
+function netLoadDeps() {
+  if (NET.deps) return NET.deps;
+  NET.deps = window.Peer ? Promise.resolve() : new Promise((ok, no) => {
+    const s = document.createElement("script");
+    s.src = NET_SRC; s.async = false;
+    s.onload = () => ok();
+    s.onerror = () => no(new Error("could not reach the network library"));
+    document.head.appendChild(s);
+  });
+  return NET.deps;
+}
+
+/* ── the wire ──
+   Input is one byte. A snapshot is a flat Float32Array, because the alternative
+   is a JSON object of forty numbers sixty times a second. Layout is fixed and
+   read back by index; SNAP_N must match what netPack writes. */
+const SNAP_N = 2 * 18 + 8;
+
+function netPack() {
+  const a = new Float32Array(SNAP_N);
+  let i = 0;
+  for (const f of F) {
+    a[i++] = f.x; a[i++] = f.y; a[i++] = f.z; a[i++] = f.yaw;
+    a[i++] = f.vx; a[i++] = f.vz;
+    a[i++] = f.lean; a[i++] = f.leanX; a[i++] = f.leanZ;
+    a[i++] = f.step; a[i++] = f.bob; a[i++] = f.squash; a[i++] = f.thrust;
+    a[i++] = f.cel; a[i++] = f.tumble;
+    a[i++] = f.tumbleAxis ? f.tumbleAxis[0] : 0;
+    a[i++] = f.tumbleAxis ? f.tumbleAxis[2] : 0;
+    a[i++] = (f.alive ? 1 : 0) + (f.falling ? 2 : 0);
+  }
+  a[i++] = G.radius; a[i++] = G.shake; a[i++] = G.cd;
+  a[i++] = F[0].score; a[i++] = F[1].score; a[i++] = G.round;
+  a[i++] = ["menu", "countdown", "play", "roundEnd", "matchEnd"].indexOf(G.state);
+  a[i++] = G.map;
+  return a;
+}
+
+const NET_STATES = ["menu", "countdown", "play", "roundEnd", "matchEnd"];
+
+function netApply(a) {
+  /* The guest hears nothing by default: every impact sound is played from inside
+     the collision code it does not run. Rather than spend a message on each one,
+     the cues are read back out of the snapshot — a squash that jumps from nothing
+     to full IS a clash, and a fighter that starts falling has just lost the ring. */
+  const was = F.map(f => ({ squash: f.squash, falling: f.falling, cel: f.cel }));
+  let i = 0;
+  for (const f of F) {
+    f.x = a[i++]; f.y = a[i++]; f.z = a[i++]; f.yaw = a[i++];
+    f.vx = a[i++]; f.vz = a[i++];
+    f.lean = a[i++]; f.leanX = a[i++]; f.leanZ = a[i++];
+    f.step = a[i++]; f.bob = a[i++]; f.squash = a[i++]; f.thrust = a[i++];
+    f.cel = a[i++]; f.tumble = a[i++];
+    const tx = a[i++], tz = a[i++];
+    f.tumbleAxis = [tx, 0, tz];
+    const flags = a[i++];
+    f.alive = !!(flags & 1); f.falling = !!(flags & 2);
+  }
+  G.radius = a[i++]; G.shake = a[i++]; G.cd = a[i++];
+  const s0 = a[i++], s1 = a[i++], rd = a[i++];
+  const st = NET_STATES[a[i++]] || "play";
+  const map = a[i++] | 0;
+  if (F[0].score !== s0 || F[1].score !== s1) {
+    F[0].score = s0; F[1].score = s1; G.round = rd; syncHUD();
+  }
+  if (map !== G.map) applyMap(map);
+  // the guest's banner follows the host's state rather than its own round flow
+  if (st !== G.state) {
+    G.state = st;
+    if (st === "countdown") { HUD.banner.classList.remove("on"); syncHUD(); }
+  }
+  F.forEach((f, n) => {
+    // afterimages and dust are cosmetic, so the guest makes its own
+    if (Math.hypot(f.vx, f.vz) > 0.052) {
+      f.ghosts.push({ x: f.x, z: f.z, y: f.y, yaw: f.yaw, a: 1 });
+      if (f.ghosts.length > 7) f.ghosts.shift();
+    }
+    const jump = f.squash - was[n].squash;
+    if (jump > 0.45) {                       // a clash landed this frame
+      sndHit(jump, jump > 0.85);
+      const cy = CFG.deck + 0.62;
+      burst(f.x, cy, f.z, 9, 0.06, [[1, 0.96, 0.88], f.team.glow], { size: 0.06, glow: 1.25 });
+      dust(f.x, CFG.deck + 0.04, f.z, 7, 0.02);
+      G.shake = Math.min(0.30, G.shake + 0.05 * jump);
+    }
+    if (f.falling && !was[n].falling) {       // they have lost the ring
+      sndFall();
+      shock(f.x, CFG.deck + 0.012, f.z, 2.0, f.team.glow, 1);
+    }
+    if (f.cel > 0.45 && was[n].cel <= 0.45)
+      dust(f.x, CFG.deck + 0.03, f.z, 12, 0.016);
+  });
+}
+
+const netBit = k => (KEYS[k] ? 1 : 0);
+function netLocalInput() {
+  // online, one player has the whole keyboard: either key set drives your man
+  const a = CTRL[0], b = CTRL[1];
+  return (netBit(a.up) | netBit(b.up)) |
+         ((netBit(a.down) | netBit(b.down)) << 1) |
+         ((netBit(a.left) | netBit(b.left)) << 2) |
+         ((netBit(a.right) | netBit(b.right)) << 3);
+}
+function netApplyKeys(idx, bits) {
+  const k = CTRL[idx];
+  KEYS[k.up] = !!(bits & 1); KEYS[k.down] = !!(bits & 2);
+  KEYS[k.left] = !!(bits & 4); KEYS[k.right] = !!(bits & 8);
+}
+
+function netSend(msg) {
+  if (NET.conn && NET.conn.open) { try { NET.conn.send(msg); } catch (e) { /* dropped */ } }
+}
+
+function netStatus(s) { NET.status = s; if (OV.mode === "online") renderOverlay(); }
+
+function netWire(conn) {
+  NET.conn = conn;
+  conn.on("open", () => {
+    NET.lastSeen = performance.now();
+    if (NET.role === "guest") netSend({ t: "hello", char: MENU.chars[1] });
+    netStatus("CONNECTED");
+    if (NET.role === "host") netStartBout();
+  });
+  conn.on("data", d => {
+    NET.lastSeen = performance.now();
+    if (d instanceof Float32Array || d instanceof ArrayBuffer) {
+      NET.snap = d instanceof ArrayBuffer ? new Float32Array(d) : d;
+      return;
+    }
+    if (typeof d === "number") { NET.guestKeys = d; return; }
+    if (!d || !d.t) return;
+    if (d.t === "hello") {                       // the guest brings its own body
+      MENU.chars[1] = clamp(d.char | 0, 0, CHARS.length - 1);
+      applyChars();
+      netSend({ t: "start", chars: MENU.chars.slice(), map: OPT.map,
+                rounds: CFG.roundsToWin });
+    } else if (d.t === "start") {                // the host owns the bout settings
+      MENU.chars[0] = d.chars[0]; MENU.chars[1] = d.chars[1];
+      OPT.map = d.map; CFG.roundsToWin = d.rounds; rebuildPips();
+      netStartBout();
+    } else if (d.t === "banner") {
+      HUD.bTitle.textContent = d.title; HUD.bTitle.style.color = d.col;
+      HUD.bSub.textContent = d.sub; HUD.bHint.innerHTML = d.hint;
+      HUD.banner.classList.add("on"); HUD.warn.classList.remove("on");
+    } else if (d.t === "ping") { netSend({ t: "pong", at: d.at });
+    } else if (d.t === "pong") { NET.ping = Math.round(performance.now() - d.at);
+    } else if (d.t === "bye") { netDrop("YOUR FRIEND LEFT"); }
+  });
+  conn.on("close", () => netDrop("CONNECTION CLOSED"));
+  conn.on("error", () => netDrop("CONNECTION LOST"));
+}
+
+function netStartBout() {
+  NET.on = true;
+  /* An online bout runs as a two-fighter local match with the far side's keys
+     arriving over the wire, which is what keeps the AI out of it — startRound
+     switches the AI on from the mode alone. The menu's own choice is borrowed and
+     given back, the same way a basho borrows it, so leaving lands you back on
+     ONLINE rather than on 2 PLAYER. */
+  NET.savedMode = MENU.mode;
+  MENU.mode = 0;
+  closeOverlay();
+  HUD.menu.classList.remove("on");
+  HUD.hud.classList.remove("menu");
+  newMatch();
+}
+
+async function netHost() {
+  netLeave(true);
+  NET.role = "host"; NET.err = "";
+  netStatus("STARTING…");
+  try {
+    await netLoadDeps();
+    NET.code = netCode();
+    NET.peer = new Peer(netId(NET.code), { debug: 0 });
+    NET.peer.on("open", () => netStatus("WAITING FOR A FRIEND"));
+    NET.peer.on("connection", c => { if (NET.conn) { c.close(); return; } netWire(c); });
+    NET.peer.on("error", e => {
+      // an id clash just means that code is taken; anything else is fatal
+      if (e && e.type === "unavailable-id") { NET.code = netCode(); return; }
+      netDrop("COULD NOT REACH THE MATCHMAKER");
+    });
+  } catch (e) { netDrop(e.message); }
+}
+
+async function netJoin(code) {
+  netLeave(true);
+  NET.role = "guest"; NET.err = "";
+  NET.code = String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (NET.code.length !== 5) { netDrop("A CODE IS FIVE CHARACTERS"); return; }
+  netStatus("CONNECTING…");
+  try {
+    await netLoadDeps();
+    NET.peer = new Peer({ debug: 0 });
+    NET.peer.on("open", () => {
+      const c = NET.peer.connect(netId(NET.code), { reliable: false });
+      netWire(c);
+      setTimeout(() => { if (!NET.conn || !NET.conn.open) netDrop("NO ROOM WITH THAT CODE"); }, 9000);
+    });
+    NET.peer.on("error", () => netDrop("NO ROOM WITH THAT CODE"));
+  } catch (e) { netDrop(e.message); }
+}
+
+function netDrop(why) {
+  const wasPlaying = NET.on;
+  NET.err = why || "";
+  netLeave(true);
+  if (wasPlaying) { showMenu(); openOverlay("online"); }
+  netStatus(why || "");
+}
+
+function netLeave(quiet) {
+  if (!quiet && NET.conn && NET.conn.open) netSend({ t: "bye" });
+  if (NET.conn) { try { NET.conn.close(); } catch (e) {} }
+  if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
+  NET.conn = null; NET.peer = null; NET.on = false; NET.role = null;
+  NET.snap = null; NET.guestKeys = 0; NET.sentHello = false;
+  if (NET.savedMode !== undefined) { MENU.mode = NET.savedMode; NET.savedMode = undefined; }
+  // the far side's keys were being written into player two's slot; let them go
+  netApplyKeys(1, 0);
+}
+
+/* Called once per simulated frame from step(). The host reads the guest's keys,
+   simulates, and ships the result; the guest ships its keys and draws. */
+function netHostTick() {
+  netApplyKeys(1, NET.guestKeys);
+  if (G.roundT % 30 === 0) netSend({ t: "ping", at: performance.now() });
+}
+function netGuestTick() {
+  netSend(netLocalInput());
+  if (NET.snap && NET.snap.length === SNAP_N) netApply(NET.snap);
 }
 
 function collide(a, b) {
@@ -2632,6 +3011,14 @@ function updateFall(f) {
 
 function step() {
   G.time += 1 / 60;
+  /* The guest simulates nothing. It hands over its four keys and paints whatever
+     the host says the world looks like — one authority means the two screens can
+     never disagree about who is winning. Particles, camera shake and weather are
+     still local, because none of them can change the outcome. */
+  if (NET.on && NET.role === "guest") {
+    netGuestTick();
+    if (performance.now() - NET.lastSeen > 6000) netDrop("YOUR FRIEND DROPPED OUT");
+  }
   G.shake *= 0.86; if (G.shake < 0.001) G.shake = 0;
   G.flash *= 0.80;
   if (G.hitCool > 0) G.hitCool--;
@@ -2726,6 +3113,11 @@ function step() {
     return;
   }
 
+  /* Everything above here is either cosmetic or driven by the synced countdown,
+     so the guest runs it and gets the beats and the gong on time. Everything
+     below moves fighters or decides rounds, which is the host's job alone. */
+  if (NET.on && NET.role === "guest") return;
+
   if (G.state === "roundEnd" || G.state === "matchEnd") {
     for (const f of F) if (!f.falling) {          // survivor keeps coasting to a stop
       const fr = SURF.fric + f.fricAdj;
@@ -2782,6 +3174,7 @@ function step() {
     }
   }
 
+  if (NET.on && NET.role === "host") netHostTick();
   if (AI.on && F[1].alive && F[0].alive) aiStep();
   for (const f of F) if (f.alive) drive(f);
   if (F[0].alive && F[1].alive) collide(F[0], F[1]);
@@ -3984,6 +4377,11 @@ function frame(now) {
   let guard = 0;
   if (G.paused) acc = 0;
   while (acc >= STEP && guard++ < 6) { step(); acc -= STEP; }
+  /* One snapshot per drawn frame, from out here rather than from inside the
+     simulation. The state branches return early, so a send buried in the play
+     path never fired during the countdown or the round-end beat — the guest saw
+     nothing until the tachi-ai, then nothing again once someone went out. */
+  if (NET.on && NET.role === "host") netSend(netPack());
   resize();
   render();
   requestAnimationFrame(frame);
@@ -4002,6 +4400,8 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                OPT, OV, LOOKS, AI_FACE, MUS, musStart, musStop, koto, shaku,
                openOverlay, closeOverlay, renderOverlay, ovRows, HEDGE,
                FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes,
+               NET, netHost, netJoin, netLeave, netPack, netApply, netLocalInput,
+               netStartBout, NET_ENTRY, netEntryKey, buildOnline, SNAP_N,
                TOUR, SCHEDULE, RANKS, BASHO_DAYS, tourStart, tourBeginDay,
                tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips,
                TEAM, applyChars, setFoeLivery, aiStep, KEYS, CTRL };
