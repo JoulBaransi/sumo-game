@@ -19,22 +19,20 @@
      --p2 is the mawashi tone, --p2l the lighter tone text is legible in, and
      --p2g the same as an rgb triple for the glows. The player's blue is never a
      variable: which side you are must never move. */
-  :root{--p1:#2a7fd4;--p1l:#9adcff;--p1g:90,180,255;
-        --p2:#dc4436;--p2l:#ffb0a4;--p2g:255,110,90}
+  :root{--p2:#dc4436;--p2l:#ffb0a4;--p2g:255,110,90}
 
   /* ---------- scoreboards ---------- */
   .board{position:absolute;top:26px;display:flex;align-items:flex-start;gap:14px}
   .board.p1{left:30px}
   .board.p2{right:30px;flex-direction:row-reverse}
   .swatch{width:6px;height:64px;border-radius:3px;margin-top:4px}
-  .p1 .swatch{background:linear-gradient(var(--p1l),var(--p1));
-    box-shadow:0 0 18px rgba(var(--p1g),.55)}
+  .p1 .swatch{background:linear-gradient(#8ad6ff,#2a7fd4);box-shadow:0 0 18px rgba(90,180,255,.55)}
   .p2 .swatch{background:linear-gradient(var(--p2l),var(--p2));
     box-shadow:0 0 18px rgba(var(--p2g),.5)}
   .binfo{display:flex;flex-direction:column}
   .p2 .binfo{align-items:flex-end}
   .bname{font-size:13px;font-weight:800;letter-spacing:.22em;color:rgba(255,255,255,.62)}
-  .p1 .bname{color:var(--p1l)}
+  .p1 .bname{color:#9adcff}
   .p2 .bname{color:var(--p2l)}
   .bscore{font-size:52px;font-weight:800;line-height:.96;color:#fff;
     font-variant-numeric:tabular-nums;letter-spacing:-.02em;
@@ -44,41 +42,10 @@
   .pips{display:flex;gap:6px;margin-top:8px}
   .pip{width:16px;height:5px;border-radius:3px;background:rgba(255,255,255,.16);
     transition:background .25s,box-shadow .25s}
-  .p1 .pip.on{background:var(--p1);box-shadow:0 0 10px rgba(var(--p1g),.9)}
+  .p1 .pip.on{background:#4fa8ea;box-shadow:0 0 10px rgba(80,170,235,.9)}
   .p2 .pip.on{background:var(--p2);box-shadow:0 0 10px rgba(var(--p2g),.9)}
-  /* Dash readiness. A cooldown you cannot see is just the game ignoring you, so
-     it gets a bar — but only in chaos, and it takes no vertical space otherwise. */
-  .dashbar{width:100px;height:3px;margin-top:7px;border-radius:2px;
-    background:rgba(255,255,255,.14);overflow:hidden;display:none}
-  #hud.chaos .dashbar{display:block}
-  .p2 .dashbar{align-self:flex-end}
-  .dashbar i{display:block;height:100%;width:100%;border-radius:2px;
-    transform-origin:left center}
-  .p2 .dashbar i{transform-origin:right center}
-  .p1 .dashbar i{background:var(--p1l)}
-  .p2 .dashbar i{background:var(--p2l)}
   .keycap{margin-top:9px;font-size:10px;font-weight:700;letter-spacing:.16em;
     color:rgba(255,255,255,.32)}
-
-  /* ---------- pointing control: camera preview ---------- */
-  /* Bottom-left, small, and only up while the camera is actually live. The feed
-     is mirrored because a preview of yourself that isn't feels wrong to move
-     against — the pixels handed to the model are the unmirrored original. */
-  #pcam{position:absolute;left:22px;bottom:60px;width:172px;
-    border:1px solid rgba(217,184,119,.28);border-radius:9px;overflow:hidden;
-    background:rgba(0,0,0,.55);opacity:0;transition:opacity .3s;
-    box-shadow:0 8px 30px rgba(0,0,0,.5)}
-  #pcam.on{opacity:1}
-  #pcam video{width:100%;height:129px;object-fit:cover;display:block;
-    transform:scaleX(-1)}
-  #pcam canvas{position:absolute;top:0;left:0;width:100%;height:129px}
-  #pcamLbl{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;
-    font-size:9px;font-weight:800;letter-spacing:.16em;color:rgba(255,255,255,.72);
-    background:linear-gradient(transparent,rgba(0,0,0,.75));text-align:center}
-  #pcamDot{position:absolute;top:7px;left:7px;width:6px;height:6px;border-radius:50%;
-    background:#ff4d4d;box-shadow:0 0 6px #ff4d4d;z-index:2;
-    animation:pcamBlink 1.4s ease-in-out infinite}
-  @keyframes pcamBlink{0%,100%{opacity:1}50%{opacity:.25}}
 
   /* ---------- centre chrome ---------- */
   #meta{position:absolute;top:32px;left:50%;transform:translateX(-50%);text-align:center}
@@ -169,7 +136,7 @@
     color:rgba(255,255,255,.32)}
   .tkName{font-size:17px;font-weight:800;letter-spacing:.08em;color:#fff;
     white-space:nowrap}
-  .tkName.p1{color:var(--p1l)}
+  .tkName.p1{color:#7fd0ff}
   .tkName.p2{color:var(--p2l)}
   .tkRank{font-size:9px;font-weight:700;letter-spacing:.2em;color:#d9b877}
   .tkBar{width:1px;height:56px;
@@ -244,53 +211,25 @@
   #mSub::after{background:linear-gradient(90deg,rgba(217,184,119,.85),transparent)}
   /* selectable option rows */
   #mRows{display:flex;flex-direction:column;gap:3px}
-  /* The menu backdrop covers the whole screen, so it stays click-through and only
-     the controls themselves accept the mouse — otherwise it would swallow the
-     gear sitting above it. */
-  #menu.on #mRows,#menu.on #mStart{pointer-events:auto}
   .oRow{display:flex;align-items:center;gap:10px;padding:0 16px;border-radius:9px;
     height:32px;font-size:12px;font-weight:800;letter-spacing:.2em;white-space:nowrap;
-    border:1px solid transparent;transition:background .15s,border-color .15s;
-    cursor:pointer;user-select:none}
+    border:1px solid transparent;transition:background .15s,border-color .15s}
   .oRow.sel{background:rgba(255,255,255,.075);border-color:rgba(217,184,119,.42)}
-  .oRow:not(.sel):hover{background:rgba(255,255,255,.04)}
-  /* wide enough for the longest label, which is "YOUR MAWASHI" at this tracking */
-  .oLbl{width:122px;text-align:right;font-size:10px;letter-spacing:.24em;
+  .oLbl{width:104px;text-align:right;font-size:10px;letter-spacing:.24em;
     color:rgba(255,255,255,.38)}
   .oRow.sel .oLbl{color:rgba(217,184,119,.95)}
   .oVal{min-width:186px;text-align:center;color:rgba(255,255,255,.5)}
   .oRow.sel .oVal{color:#fff}
-  .oVal.p1{color:var(--p1l)}
+  .oVal.p1{color:#7fd0ff}
   .oVal.p2{color:var(--p2l)}
-  /* the arrows are the mouse's way through a row, so they need a real hit area —
-     11px of glyph is not something you can reliably click */
-  .oChev{font-size:11px;color:rgba(255,255,255,.22);padding:7px 6px;border-radius:6px;
-    transition:background .12s,color .12s}
+  .oChev{font-size:11px;color:rgba(255,255,255,.22)}
   .oRow.sel .oChev{color:rgba(217,184,119,.8)}
-  .oChev:hover{color:#fff;background:rgba(255,255,255,.12)}
   .oNote{font-size:9px;letter-spacing:.16em;color:rgba(255,255,255,.3);
     width:214px;text-align:left;overflow:hidden;text-overflow:ellipsis}
-  #mStart{margin-top:30px;font-size:13px;font-weight:800;letter-spacing:.3em;color:#fff;
-    padding:9px 20px;border-radius:9px;cursor:pointer;user-select:none;
-    border:1px solid transparent;transition:background .15s,border-color .15s}
-  #mStart:hover{background:rgba(255,255,255,.08);border-color:rgba(217,184,119,.42)}
+  #mStart{margin-top:30px;font-size:13px;font-weight:800;letter-spacing:.3em;color:#fff}
   #mStart span{animation:hintPulse 1.7s ease-in-out infinite}
   #mFoot{margin-top:18px;font-size:10px;font-weight:700;letter-spacing:.2em;
     color:rgba(255,255,255,.3)}
-  /* A second colour row costs 35px of height, and in a short window that was
-     enough to push the footer off the bottom and close the gap the two fighters
-     are framed in. Below this the whole menu compacts rather than overflowing —
-     the title is the first thing that can afford to give up room. */
-  @media (max-height:640px){
-    #menu{padding:3vh 0 3vh}
-    #mTitle{font-size:58px}
-    #mKanji{font-size:12px;letter-spacing:.5em;text-indent:.5em}
-    #mSub{margin-top:9px;font-size:10px}
-    #mSub::before,#mSub::after{width:40px}
-    .oRow{height:27px}
-    #mStart{margin-top:14px;padding:7px 18px;font-size:12px}
-    #mFoot{margin-top:9px}
-  }
   /* staggered entrance */
   @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
   #menu.on .mTop>*,#menu.on .mBot>*{animation:rise .75s cubic-bezier(.2,.85,.2,1) backwards}
@@ -323,7 +262,6 @@
         <div class="bname" id="bn1">BLUE</div>
         <div class="bscore" id="s1">0</div>
         <div class="pips" id="pip1"></div>
-        <div class="dashbar"><i id="dash1"></i></div>
         <div class="keycap" id="tag1">嵐 ARASHI</div>
       </div>
     </div>
@@ -334,18 +272,8 @@
         <div class="bname" id="bn2">RED</div>
         <div class="bscore" id="s2">0</div>
         <div class="pips" id="pip2"></div>
-        <div class="dashbar"><i id="dash2"></i></div>
         <div class="keycap" id="tag2">嵐 ARASHI</div>
       </div>
-    </div>
-
-    <!-- Pointing control. Only ever visible while the camera is live, so there is
-         no state in which the game is watching you without saying so. -->
-    <div id="pcam">
-      <div id="pcamDot"></div>
-      <video id="pcamVideo" autoplay playsinline muted></video>
-      <canvas id="pcamCanvas" width="172" height="129"></canvas>
-      <div id="pcamLbl">STARTING CAMERA…</div>
     </div>
 
     <div id="meta">
@@ -363,7 +291,7 @@
       <div id="bHint"></div>
     </div>
 
-    <div id="foot"></div>
+    <div id="foot">HOLD TO SLIDE · MOMENTUM IS EVERYTHING · <span style="color:rgba(255,255,255,.5)">SPACE</span> NEXT ROUND · <span style="color:rgba(255,255,255,.5)">P</span> PAUSE · <span style="color:rgba(255,255,255,.5)">M</span> MUTE · <span style="color:rgba(255,255,255,.5)">R</span> RESTART</div>
     <div id="menu">
       <div class="mTop">
         <div id="mKanji">相撲</div>
@@ -372,8 +300,8 @@
       </div>
       <div class="mBot">
         <div id="mRows"></div>
-        <div id="mStart"><span>PRESS SPACE OR CLICK TO BEGIN</span></div>
-        <div id="mFoot"></div>
+        <div id="mStart"><span>PRESS SPACE TO BEGIN</span></div>
+        <div id="mFoot">↑↓ SELECT · ←→ CHANGE · BLUE W A S D · RED ↑ ← ↓ → · P PAUSE · M MUTE · ESC MENU</div>
       </div>
     </div>
 
@@ -1283,56 +1211,16 @@ const TEAM = [
   livery("RED",  "#d8544a", "#5c1712", "#ffab9e", [1.0, 0.35, 0.25], 0.32),
 ];
 
-/* ── mawashi ──
-   Both fighters choose, and the two palettes are kept apart on purpose: the left
-   side wears the cool half of the wheel, the right side the warm and the dark.
-   Four each.
-
-   Splitting them this way is what makes the choice safe. Which fighter is yours
-   gets read off colour a hundred times a bout, and with one shared list the two
-   of you could dress identically — so instead of policing that at runtime, the
-   palettes simply cannot overlap. It also keeps the left side clear of every
-   basho opponent, who are green, violet, ink, wine and crimson: warm and dark
-   are exactly the colours the schedule uses, and the left side has none of them.
-
-   Four names each rather than a colour wheel, because this should take a second
-   and never be thought about again. */
-const MAWASHI = [[
-  TEAM[0],                                                              // 青 blue
-  /* Teal rather than a truer green: day one of a basho is a leaf-green rikishi,
-     and that was the one pairing in this whole palette where two fighters sat in
-     the same family. Pushing this toward cyan costs nothing, because the only
-     colour it moves closer to is the blue directly above it — and the two of them
-     are both yours, so they are never on the clay together. */
-  livery("JADE",   "#12969b", "#07383c", "#79e0e6", [0.15, 0.90, 0.95], 0.34),
-  livery("INDIGO", "#5a5bc8", "#191a4e", "#aeb0ff", [0.38, 0.38, 1.00], 0.34),
-  livery("ASH",    "#c3cbd2", "#4a5259", "#eef3f7", [0.80, 0.88, 0.95], 0.30),
-], [
-  TEAM[1],                                                              // 赤 red
-  livery("AMBER",  "#d97e1e", "#4d2605", "#ffd08a", [1.00, 0.62, 0.14], 0.32),
-  livery("PLUM",   "#a8437e", "#3d0f2c", "#f5a4d4", [1.00, 0.32, 0.75], 0.32),
-  // dark enough to need the lifted rim, the same trick Kokuryu's ink uses
-  livery("SUMI",   "#4a4142", "#171314", "#c0b4b5", [0.62, 0.50, 0.50], 0.62),
-]];
-const MAWASHI_KANJI = [["青", "翠", "藍", "白"], ["赤", "橙", "紫", "墨"]];
-
-const mawashiOf = side => MAWASHI[side][OPT.mawashi[side]];
-const mawashiName = side =>
-  MAWASHI_KANJI[side][OPT.mawashi[side]] + "  " + mawashiOf(side).name;
-
 const rgbTriple = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(",");
 
 /* Repaint every HUD element that speaks for the opponent. Called from applyChars
    and from the bout card, so the colour is already right the first time you see
    the name — not one frame after the fighter appears. */
-function setFoeLivery(t) { setLivery("--p2", t); }
-function setMeLivery(t)  { setLivery("--p1", t); }
-
-function setLivery(v, t) {
+function setFoeLivery(t) {
   const s = document.documentElement.style;
-  s.setProperty(v, t.css[0]);
-  s.setProperty(v + "l", t.css[1]);
-  s.setProperty(v + "g", rgbTriple(t.css[0]));
+  s.setProperty("--p2", t.css[0]);
+  s.setProperty("--p2l", t.css[1]);
+  s.setProperty("--p2g", rgbTriple(t.css[0]));
 }
 
 /* ═════════════════════════════ TUNING ═════════════════════════════ */
@@ -1354,57 +1242,6 @@ const CFG = {
 /* Surface grip, overwritten per venue. Friction is a per-frame velocity
    multiplier, so a HIGHER number means longer slides. */
 const SURF = { fric: CFG.fric };
-
-/* ── chaos rules ──
-   Two verbs and one rule change, all of them still on the x/z plane.
-
-   DASH is the real addition. This game is about momentum — commit, land the
-   shove, don't sail out yourself — and a dash is that turned up: a burst you
-   spend, paid for with frames where you cannot steer. `imp` is a multiple of the
-   body's own acceleration, so the light body dashes furthest and the heavy one
-   least, exactly as their walking already works. At 11x it adds about half of
-   terminal speed and carries a shade over two units, on a ring of radius 4.55.
-
-   HOP is a dodge, not a jump. The whole game is 2D on x/z and only rendering
-   ever uses the third dimension; a real jump would need airborne shoves and
-   vertical collision, which is 3D physics and the one line this codebase is
-   built around not crossing. So the arc is cosmetic and what it actually does is
-   a RULE: while you are off the clay the two of you cannot collide, so a charge
-   passes underneath. The edge test still reads x/z alone, which means hopping
-   over the straw bales ejects you exactly as walking over them would. Air
-   steering is cut hard so the arc is a commitment too.
-
-   The ring does not close in chaos. That is the "bigger arena" — not a wider
-   one, which the fixed camera cannot frame, but one that keeps its full radius
-   for the whole round instead of shrinking to 1.75. */
-const CHAOS = {
-  imp: 11,            // dash impulse, as a multiple of this body's accel
-  cd: 45,             // frames before you can dash again
-  lock: 12,           // frames after a dash with no steering — the commitment
-  hopDur: 34,         // frames in the air
-  /* At 0.92 the arc was there but you had to look for it: the shadow does detach
-     and slide off down-light, which is the only cue that says airborne, and half a
-     body height barely moved it. This is a dodge you have to time, so it has to be
-     unmistakable — and the height is free, since nothing but the renderer and the
-     shadow ever reads it. */
-  hopPeak: 1.5,
-  /* Longer than hopDur, because nothing collides with an airborne fighter and a
-     short gap would leave a hop-spammer untouchable: at 50 they were off the clay
-     two thirds of the time. At 64 it is closer to half, with a clear half-second
-     on the ground between hops where a shove can land. */
-  hopCd: 64,
-  air: 0.35,          // steering authority while off the clay
-
-  /* The ring closing is what guarantees a round ENDS, and taking it out took that
-     guarantee with it: simulated against a clumsy stand-in player, two out of 210
-     chaos rounds were still going at ninety seconds, which in a real game means
-     never. So the ring holds its full radius for twenty seconds — longer than all
-     but the most drawn-out rounds, average measured at ten to twenty-six — and
-     then closes about twice as fast as usual. The promise holds where it matters
-     and a stalemate still gets settled. */
-  hold: 1200,         // frames at full radius before the clay gives at all
-  close: 0.010,       // then it comes in at better than twice the classic rate
-};
 
 /* ── the roster ──
    Bodies differ in mass, reach, acceleration and grip. Terminal speed works out
@@ -1454,33 +1291,22 @@ const AI_FACE = [
 
    Index 3 is deliberately below EASY and is not offered in the VS AI menu — it
    exists so the opening day of a basho can be a genuine warm-up. The difficulty
-   row still cycles the first three, which is what EASY/MEDIUM/HARD should mean.
-
-   dashOdds and hopOdds are per-decision chances of using the chaos verbs, and
-   they only ever apply in that mode. They climb with the tier for the same reason
-   everything else does: knowing WHEN is the skill. */
+   row still cycles the first three, which is what EASY/MEDIUM/HARD should mean. */
 const AI_TIERS = [
   { label: "EASY",   name: "RIKISHI",   kanji: "力士",   react: 16, predict: 0,
-    edge: 0.86, jitter: 0.22, every: 8,  bait: 0.00, idle: 0.00,
-    dashOdds: 0.10, hopOdds: 0.04 },
+    edge: 0.86, jitter: 0.22, every: 8,  bait: 0.00, idle: 0.00 },
   { label: "MEDIUM", name: "SEKIWAKE",  kanji: "関脇",   react: 14, predict: 5,
-    edge: 0.71, jitter: 0.19, every: 6,  bait: 0.20, idle: 0.00,
-    dashOdds: 0.26, hopOdds: 0.14 },
+    edge: 0.71, jitter: 0.19, every: 6,  bait: 0.20, idle: 0.00 },
   { label: "HARD",   name: "YOKOZUNA",  kanji: "横綱",   react: 3,  predict: 30,
-    edge: 0.47, jitter: 0.03, every: 2,  bait: 0.85, idle: 0.00,
-    dashOdds: 0.55, hopOdds: 0.40 },
+    edge: 0.47, jitter: 0.03, every: 2,  bait: 0.85, idle: 0.00 },
   { label: "NOVICE", name: "JONOKUCHI", kanji: "序ノ口", react: 26, predict: 0,
-    edge: 0.93, jitter: 0.34, every: 14, bait: 0.00, idle: 0.30,
-    dashOdds: 0.04, hopOdds: 0.02 },
+    edge: 0.93, jitter: 0.34, every: 14, bait: 0.00, idle: 0.30 },
 ];
 
 const MENU = { row: 0, mode: 0, diff: 1, chars: [1, 1] };
 /* Settings persist across bouts. map = -1 means the venues rotate one per round,
    which is the default; any other value pins a single venue. */
-const OPT = { map: -1, music: true, rounds: 5, point: false, mawashi: [0, 0],
-              chaos: false };
-// chaos is off during a basho: that record is set under the normal rules
-const chaosOn = () => OPT.chaos && !TOUR.on;
+const OPT = { map: -1, music: true, rounds: 5 };
 
 /* ── the basho ──
    A real tournament runs fifteen days, one bout a day, and you fight every day
@@ -1521,8 +1347,7 @@ const SCHEDULE = [
   { kanji: "雷電",   name: "RAIDEN",     rank: 4, char: 1, tier: 2,
     col: livery("RAIDEN",     "#d8544a", "#5c1712", "#ffab9e", [1.00, 0.35, 0.25], 0.32) },
 ];
-const TOUR = { on: false, day: 0, wins: 0, losses: 0, results: [], rank: 0,
-               saved: null };   // the menu selections a basho borrows and returns
+const TOUR = { on: false, day: 0, wins: 0, losses: 0, results: [], rank: 0 };
 // The pause screen and the settings screen are the same overlay in two modes.
 const OV = { mode: null, row: 0, cameFromMenu: false };
 const AI = { on: false, tier: 1, hist: [], t: 0, dir: [0, 0] };
@@ -1542,8 +1367,6 @@ function makeFighter(i) {
     team: TEAM[i], idx: i,
     char: CHARS[1], mass: 1, hitR: CFG.hitR,   // ── body, set by applyChars ──
     accel: CFG.accel, fricAdj: 0, scale: CFG.rigScale,
-    dashCd: 0, dashT: 0, hopT: 0, hopCd: 0,       // ── chaos verbs ──
-    dashHeld: false, hopHeld: false,
     x: 0, z: 0, vx: 0, vz: 0,           // ── 2D physics state ──
     y: 0, vy: 0,                        // ── render / fall only ──
     alive: true, falling: false, landed: false, fallT: 0,
@@ -1559,14 +1382,9 @@ function makeFighter(i) {
 const F = [makeFighter(0), makeFighter(1)];
 
 const KEYS = {};
-/* Chaos adds two keys a side, placed so each player keeps one hand where it
-   already was: left pinky and thumb for WASD, and the two keys sitting under the
-   arrow cluster for the arrows. */
 const CTRL = [
-  { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD",
-    dash: "ShiftLeft", hop: "Space" },
-  { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
-    dash: "ShiftRight", hop: "Slash" },
+  { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD" },
+  { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" },
 ];
 const BLOCKED = new Set(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"]);
 
@@ -1785,21 +1603,6 @@ function sndShove(k) {
   const K = clamp(k, 0.2, 2.6);
   nz({ f: 760, f1: 190, q: 0.7, type: "lowpass", dur: 0.15, gain: 0.09 + K * 0.04 });
   tn({ f: 112, f1: 40, dur: 0.19, gain: 0.12 + K * 0.05 });
-}
-
-/* The two chaos verbs. A dash is a hard exhale plus the grit of one foot pushing
-   off, kept dry and short so it reads as effort rather than as magic; the hop is
-   the same idea an octave up and lighter, with a rising sweep so it goes UP where
-   the dash goes forward. Both stay well under a body clash — they are what sets
-   up a hit, not the hit. */
-function sndDash() {
-  nz({ f: 340, f1: 1500, q: 0.8, dur: 0.16, gain: 0.19, atk: 0.008 });
-  nz({ f: 2600, f1: 900, q: 1.2, dur: 0.09, gain: 0.09, atk: 0.002 });
-  tn({ f: 150, f1: 66, dur: 0.14, gain: 0.10, type: "triangle" });
-}
-function sndHop() {
-  nz({ f: 700, f1: 2400, q: 1.0, dur: 0.13, gain: 0.11, atk: 0.006 });
-  tn({ f: 210, f1: 430, dur: 0.15, gain: 0.075, type: "triangle", atk: 0.01 });
 }
 
 /* Losing the ring is how every round ends, so it gets the biggest gesture in the
@@ -2109,12 +1912,6 @@ const HUD = {
   bSub: document.getElementById("bSub"),
   bHint: document.getElementById("bHint"),
   gear: document.getElementById("gear"),
-  foot: document.getElementById("foot"),
-  dashBar: [document.getElementById("dash1"), document.getElementById("dash2")],
-  pcam: document.getElementById("pcam"),
-  pcamVideo: document.getElementById("pcamVideo"),
-  pcamCanvas: document.getElementById("pcamCanvas"),
-  pcamLbl: document.getElementById("pcamLbl"),
   overlay: document.getElementById("overlay"),
   ovKanji: document.getElementById("ovKanji"),
   ovTitle: document.getElementById("ovTitle"),
@@ -2126,8 +1923,6 @@ const HUD = {
   venue: document.getElementById("venue"),
   tag: [document.getElementById("tag1"), document.getElementById("tag2")],
   rows: document.getElementById("mRows"),
-  start: document.getElementById("mStart"),
-  mFoot: document.getElementById("mFoot"),
 };
 
 for (let i = 0; i < 2; i++) {
@@ -2149,39 +1944,6 @@ function syncHUD(bumpIdx) {
     ? "DAY " + (TOUR.day + 1) + "/" + BASHO_DAYS + " · " + TOUR.wins + "–" + TOUR.losses +
       " · ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin
     : "ROUND " + G.round + " · FIRST TO " + CFG.roundsToWin;
-  syncFoot();
-}
-
-const kbd = s => '<span style="color:rgba(255,255,255,.5)">' + s + "</span>";
-
-/* The bottom hint has to name the chaos keys when they exist and stay quiet when
-   they don't, and it can only name them once the mode is known — so it is built,
-   not written. The class on #hud is what reveals the dash bars. */
-function syncFoot() {
-  const on = chaosOn();
-  HUD.hud.classList.toggle("chaos", on);
-  /* With two humans there are four keys to name, so it becomes a pair per side
-     rather than a key per verb — spelling both out one verb at a time ran to
-     "SPACE / / HOP", which is not a sentence. */
-  const keys = MENU.mode === 0
-    ? "DASH AND HOP · " + kbd("SHIFT") + "+" + kbd("SPACE") +
-      " · " + kbd("RSHIFT") + "+" + kbd("/")
-    : "DASH THROUGH THEM · HOP OVER A CHARGE · " +
-      kbd("SHIFT") + " DASH · " + kbd("SPACE") + " HOP";
-  HUD.foot.innerHTML = on
-    ? keys + " · " + kbd("P") + " PAUSE · " + kbd("M") + " MUTE · " + kbd("R") + " RESTART"
-    : "HOLD TO SLIDE · MOMENTUM IS EVERYTHING · " +
-      kbd("SPACE") + " NEXT ROUND · " + kbd("P") + " PAUSE · " +
-      kbd("M") + " MUTE · " + kbd("R") + " RESTART";
-}
-
-// dash readiness, every frame it can change
-function syncDash() {
-  for (let i = 0; i < 2; i++) {
-    const f = F[i], k = CHAOS.cd ? 1 - f.dashCd / CHAOS.cd : 1;
-    HUD.dashBar[i].style.transform = "scaleX(" + k.toFixed(3) + ")";
-    HUD.dashBar[i].style.opacity = f.dashCd ? 0.55 : 1;
-  }
 }
 
 let lastCd = -1;
@@ -2200,8 +1962,6 @@ const MODE_NOTE = ["share the keyboard", "one keyboard, one human",
                    "five days, one record"];
 const CHAR_NOTE = ["heavy · slow · immovable", "even in every way",
                    "light · quick · skittish"];
-// who each side is, per mode — short, because it prefixes two rows
-const SIDE_LABEL = [["P1", "P2"], ["YOUR", "AI"], ["YOUR", "AI"]];
 
 function menuRows() {
   const rows = [
@@ -2220,53 +1980,12 @@ function menuRows() {
   const sides = MENU.mode === 2 ? 1 : 2;
   for (let i = 0; i < sides; i++) {
     const c = CHARS[MENU.chars[i]];
-    const cls = i ? "p2" : "p1";
-    /* Both sides carry a colour now, so a side can no longer be NAMED by its
-       colour — the label would just repeat the row under it, and in a basho it
-       would name a colour the schedule chose rather than you. So the sides get
-       stable names, and each keeps its own two rows together. */
-    const who = SIDE_LABEL[MENU.mode][i];
-    rows.push({ lbl: who + " RIKISHI", cls,
+    rows.push({ lbl: MENU.mode === 2 ? "YOUR RIKISHI" : (i ? "RED" : "BLUE"),
+      cls: i ? "p2" : "p1",
       val: c.kanji + "  " + c.name, note: CHAR_NOTE[MENU.chars[i]],
       get: () => MENU.chars[i], set: v => MENU.chars[i] = (v + 3) % 3, n: 3 });
-    /* In a basho the opponent's colour is his own, like his name and his rank,
-       so there is nothing to offer for that side. */
-    if (i === 0 || MENU.mode !== 2) {
-      const list = MAWASHI[i];
-      rows.push({ lbl: who + " MAWASHI", cls,
-        val: mawashiName(i),
-        note: i ? "the belt they wrap on" : "the belt you wrap on",
-        get: () => OPT.mawashi[i],
-        set: v => OPT.mawashi[i] = (v + list.length) % list.length,
-        n: list.length });
-    }
   }
   return rows;
-}
-
-/* Browsers won't start audio before a gesture, and a click is a gesture just as
-   much as a key is — without this, playing the menu entirely by mouse would
-   leave the whole game silent. */
-function uiGesture() {
-  sndInit();
-  if (SND.ctx && SND.ctx.state === "suspended") SND.ctx.resume();
-}
-
-/* Wire one settings row for the mouse. The arrows step down and up, and a click
-   anywhere else on the row steps up as well — the value cycles, so there is
-   nothing else a plain click could mean.
-
-   hoverSelects moves the keyboard cursor with the pointer. That is right on the
-   main menu, where Space always means "begin" no matter which row is lit, and
-   wrong on the pause and settings screens, where Space activates the lit row:
-   a cursor left resting over MAIN MENU would turn the next keypress into
-   abandoning the bout. */
-function bindRow(el, chevL, chevR, i, cur, change, hoverSelects) {
-  if (hoverSelects)
-    el.onmouseenter = () => { if (i !== cur()) { uiGesture(); change(i, 0); } };
-  el.onclick = () => { uiGesture(); change(i, 1); };
-  chevL.onclick = e => { e.stopPropagation(); uiGesture(); change(i, -1); };
-  chevR.onclick = e => { e.stopPropagation(); uiGesture(); change(i, 1); };
 }
 
 function renderMenu() {
@@ -2287,21 +2006,8 @@ function renderMenu() {
     const note = document.createElement("div");
     note.className = "oNote"; note.textContent = r.note;
     el.append(lbl, l, v, rt, note);
-    bindRow(el, l, rt, i, () => MENU.row, (row, d) => {
-      MENU.row = row;
-      if (d) menuChange(d); else { sndClack(1.45, 0.34); renderMenu(); }
-    }, true);
     HUD.rows.append(el);
   });
-  /* The footer names your side, so it has to be built rather than written: it
-     used to say BLUE, which stops being true the moment you wrap on another
-     mawashi. The arrow keys are only worth mentioning with two humans — against
-     the AI they are what IT presses. */
-  HUD.mFoot.textContent =
-    "↑↓ SELECT · ←→ CHANGE · OR USE THE MOUSE · " +
-    mawashiOf(0).name + " W A S D" +
-    (MENU.mode === 0 ? " · " + mawashiOf(1).name + " ↑ ← ↓ →" : "") +
-    " · P PAUSE · M MUTE · ESC MENU";
 }
 
 function menuMove(d) {
@@ -2319,10 +2025,9 @@ function menuChange(d) {
 }
 
 function applyChars() {
-  // each side wears its own pick; in a basho the schedule dresses the opponent
-  F[0].team = mawashiOf(0);
-  F[1].team = TOUR.on ? tourFoe(TOUR.day).col : mawashiOf(1);
-  setMeLivery(F[0].team);
+  // in a basho the opponent wears his own colours; otherwise it is plain red
+  F[0].team = TEAM[0];
+  F[1].team = TOUR.on ? tourFoe(TOUR.day).col : TEAM[1];
   setFoeLivery(F[1].team);
   for (let i = 0; i < 2; i++) {
     const f = F[i], c = CHARS[MENU.chars[i]];
@@ -2340,8 +2045,8 @@ function applyChars() {
   /* Scoreboard headings. Outside a basho the two sides are BLUE and RED, which
      is what the colours say. Inside one, the opponent has a name, and "RED"
      would be doubly wrong — he isn't red any more either. */
-  HUD.bn[0].textContent = TOUR.on ? "YOU" : F[0].team.name;
-  HUD.bn[1].textContent = TOUR.on ? tourFoe(TOUR.day).name : F[1].team.name;
+  HUD.bn[0].textContent = TOUR.on ? "YOU" : TEAM[0].name;
+  HUD.bn[1].textContent = TOUR.on ? tourFoe(TOUR.day).name : TEAM[1].name;
   // name plates: character, and who's driving the other side
   HUD.tag[0].textContent = CHARS[MENU.chars[0]].kanji + " " + CHARS[MENU.chars[0]].name;
   HUD.tag[1].textContent = CHARS[MENU.chars[1]].kanji + " " + CHARS[MENU.chars[1]].name +
@@ -2438,16 +2143,8 @@ function buildBasho(body) {
 }
 
 function tourStart() {
-  stopPointing();                 // a basho is a keyboard record
   TOUR.on = true; TOUR.day = 0; TOUR.wins = 0; TOUR.losses = 0;
   TOUR.results.length = 0; TOUR.rank = 0;
-  /* A basho drives the menu's own knobs — each day sets the mode, the tier and
-     the RED fighter from the schedule — so remember what you had chosen and give
-     it back when the basho ends. Without this a finished basho left the menu
-     saying VS AI against whichever rikishi you last fought, at whichever tier;
-     day one's tier is NOVICE, which is deliberately not offered in that menu, so
-     it also left a difficulty selected that you could not have picked. */
-  TOUR.saved = { mode: MENU.mode, diff: MENU.diff, red: MENU.chars[1] };
   CFG.roundsToWin = 3;                       // a basho bout is shorter
   rebuildPips();
   musStop();
@@ -2481,12 +2178,6 @@ function tourEnd() {
   TOUR.on = false;
   CFG.roundsToWin = OPT.rounds;
   rebuildPips();
-  if (TOUR.saved) {                // give the menu back exactly as it was left
-    MENU.mode = TOUR.saved.mode;
-    MENU.diff = TOUR.saved.diff;
-    MENU.chars[1] = TOUR.saved.red;
-    TOUR.saved = null;
-  }
   // hand the ring back to plain red, including the fighters posing behind the menu
   applyChars();
 }
@@ -2519,26 +2210,6 @@ function ovRows() {
       set: d => { if (TOUR.on) return;      // the schedule owns this during a basho
                   CFG.roundsToWin = clamp(CFG.roundsToWin + d, 1, 9);
                   OPT.rounds = CFG.roundsToWin; rebuildPips(); } },
-    /* Chaos lives here rather than as a fourth MODE, for two reasons: it is
-       orthogonal to who you are fighting — you would want it against a human or
-       the AI — and the menu is already six rows deep, where a seventh broke the
-       layout in a short window. It is hidden during a basho, whose record should
-       mean one thing. */
-    ...(TOUR.on ? [] : [{
-      lbl: "RULES", val: OPT.chaos ? "CHAOS" : "CLASSIC",
-      note: OPT.chaos ? "dash, hop, and the ring holds"
-                      : "push them out, the ring closes",
-      set: () => { OPT.chaos = !OPT.chaos; syncFoot(); } }]),
-    /* Pointing control sits here rather than on the main menu because it is a
-       preference, not part of choosing a bout — and it only appears for VS AI,
-       since two players cannot share one camera. */
-    ...(pcAvailable() ? [{
-      lbl: "CONTROL", val: OPT.point ? "POINT TO MOVE" : "KEYBOARD",
-      note: OPT.point
-        ? (POINTC.fail ? String(POINTC.fail).slice(0, 38).toLowerCase()
-                       : "aim your hand at the webcam · needs the net")
-        : "W A S D moves BLUE",
-      set: () => { OPT.point = !OPT.point; pcSync(); } }] : []),
     { lbl: "MUSIC", val: OPT.music ? "ON" : "OFF",
       note: "koto and shakuhachi on the menu",
       set: () => { OPT.music = !OPT.music;
@@ -2567,16 +2238,11 @@ function renderOverlay() {
       const rt = document.createElement("div"); rt.className = "oChev"; rt.textContent = "›";
       const n = document.createElement("div"); n.className = "oNote"; n.textContent = r.note || "";
       el.append(l, v, rt, n);
-      bindRow(el, l, rt, i, () => OV.row, (row, d) => {
-        OV.row = row;
-        if (d) { r.set(d); sndClack(1.15, 0.42); }
-        renderOverlay();
-      });
     } else {
       // an action row is one centred label, not a settings row with blank columns
       el.classList.add("act");
-      el.onclick = () => { uiGesture(); OV.row = i; r.act(); };
     }
+    el.onclick = () => { OV.row = i; if (r.act) r.act(); else { r.set(1); renderOverlay(); } };
     HUD.ovRows.append(el);
   });
   HUD.ovBody.textContent = "";
@@ -2619,13 +2285,11 @@ function closeOverlay() {
 
 // the gear is the mouse route into settings; HUD must already exist to bind it
 HUD.gear.addEventListener("click", () => {
-  uiGesture();
+  sndInit();
+  if (SND.ctx && SND.ctx.state === "suspended") SND.ctx.resume();
   if (OV.mode === "settings") { if (OV.cameFromMenu) closeOverlay(); else openOverlay("pause"); }
   else openOverlay("settings");
 });
-
-// and the whole menu is clickable, so the bout can be started without the keyboard
-HUD.start.addEventListener("click", () => { uiGesture(); beginMatch(); });
 
 function overlayKey(code) {
   const rows = ovRows();
@@ -2652,7 +2316,6 @@ function overlayKey(code) {
 // up on their marks and breathing, lamps lit, dust drifting.
 function showMenu() {
   if (TOUR.on) tourEnd();
-  stopPointing();                 // the camera has no business running on the menu
   for (const f of F) f.score = 0;
   G.round = 1; G.winner = null;
   syncHUD();
@@ -2674,7 +2337,6 @@ function beginMatch() {
   HUD.menu.classList.remove("on");
   HUD.hud.classList.remove("menu");
   newMatch();
-  pcSync();                        // asks for the camera only if the mode is on
 }
 
 function newMatch() {
@@ -2707,8 +2369,6 @@ function startRound() {
     f.tumble = 0; f.spin = 0; f.lean = 0; f.leanX = 0; f.leanZ = 0;
     f.step = 0; f.bob = 0; f.squash = 0; f.thrust = 0; f.hitFlash = 0; f.scuffT = 0;
     f.cel = 0; f.celOn = false; f.celPuff = false;
-    f.dashCd = 0; f.dashT = 0; f.hopT = 0; f.hopCd = 0;
-    f.dashHeld = false; f.hopHeld = false;
     f.ghosts.length = 0;
   }
   HUD.banner.classList.remove("on");
@@ -2779,77 +2439,15 @@ function endRound(winner) {
 
 /* ═════════════════════════════ SIMULATION (2D) ═════════════════════════════ */
 
-// off the clay: no collisions either way, and barely any steering
-const airborne = f => f.hopT > 0;
-
-/* Both verbs are edge-triggered off the same held-key map everything else reads,
-   so the AI gets them by writing KEYS exactly as it already writes directions. */
-function chaosVerbs(f, k, ix, iz) {
-  if (f.dashCd > 0) f.dashCd--;
-  if (f.hopCd > 0) f.hopCd--;
-  if (f.dashT > 0) f.dashT--;
-
-  const dashDown = !!KEYS[k.dash], hopDown = !!KEYS[k.hop];
-  const dashPress = dashDown && !f.dashHeld, hopPress = hopDown && !f.hopHeld;
-  f.dashHeld = dashDown; f.hopHeld = hopDown;
-
-  if (dashPress && f.dashCd === 0 && !airborne(f)) {
-    // no direction held: go where the body is already facing
-    let dx = ix, dz = iz;
-    if (!dx && !dz) { dx = -Math.sin(f.yaw); dz = Math.cos(f.yaw); }
-    const m = Math.hypot(dx, dz) || 1;
-    const imp = f.accel * CHAOS.imp;
-    f.vx += (dx / m) * imp; f.vz += (dz / m) * imp;
-    f.dashCd = CHAOS.cd; f.dashT = CHAOS.lock;
-    f.squash = Math.max(f.squash, 0.7); f.thrust = 1;
-    dust(f.x - dx / m * 0.3, CFG.deck + 0.03, f.z - dz / m * 0.3, 9, 0.03);
-    sndDash();
-  }
-  if (hopPress && f.hopCd === 0 && !airborne(f)) {
-    f.hopT = CHAOS.hopDur; f.hopCd = CHAOS.hopCd;
-    dust(f.x, CFG.deck + 0.02, f.z, 7, 0.018);
-    sndHop();
-  }
-  if (f.hopT > 0) {
-    f.hopT--;
-    // a plain half-sine arc: leaves and lands at zero with no seam
-    f.y = Math.sin(Math.PI * (1 - f.hopT / CHAOS.hopDur)) * CHAOS.hopPeak;
-    if (f.hopT === 0) {
-      f.y = 0;
-      dust(f.x, CFG.deck + 0.02, f.z, 11, 0.022);
-      sndLand(0.5);
-    }
-  }
-}
-
 function drive(f) {
   const k = CTRL[f.idx];
   let ix = (KEYS[k.right] ? 1 : 0) - (KEYS[k.left] ? 1 : 0);
   let iz = (KEYS[k.down]  ? 1 : 0) - (KEYS[k.up]   ? 1 : 0);
 
-  /* Pointing steers BLUE, but a key still overrides it. Locking the keyboard out
-     would mean a bad prediction leaves you with no way to move at all, and the
-     two never fight over the fighter: a hand only gets a say while no key is
-     down. The raw probabilities go in unnormalised — the block below normalises,
-     so their ratio is what sets the angle. */
-  if (f.idx === 0 && POINTC.active && !ix && !iz) {
-    ix = POINTC.vec[0]; iz = POINTC.vec[1];
-  }
-
-  /* The dash and the hop are both commitments: for the frames after a dash you
-     have no say at all, and in the air you have almost none. That is the whole
-     price of them, and it is what keeps the mode a game rather than a scribble. */
-  let auth = 1;
-  if (chaosOn()) {
-    chaosVerbs(f, k, ix, iz);
-    if (f.dashT > 0) auth = 0;
-    else if (airborne(f)) auth = CHAOS.air;
-  }
-
-  if ((ix || iz) && auth > 0) {
+  if (ix || iz) {
     const m = Math.hypot(ix, iz); ix /= m; iz /= m;
-    f.vx += ix * f.accel * auth;
-    f.vz += iz * f.accel * auth;
+    f.vx += ix * f.accel;
+    f.vz += iz * f.accel;
     f.leanX = lerp(f.leanX, ix, 0.16);
     f.leanZ = lerp(f.leanZ, iz, 0.16);
   } else {
@@ -2920,305 +2518,6 @@ function aiStep() {
   const [dx, dz] = AI.dir;
   KEYS[k.right] = dx >  0.34; KEYS[k.left] = dx < -0.34;
   KEYS[k.down]  = dz >  0.34; KEYS[k.up]   = dz < -0.34;
-
-  /* In chaos it gets the same two verbs you do, and it has to: a mode whose whole
-     point is a dash would otherwise hand you a free win over an opponent that
-     only walks. Both are written as key presses through the same map, so the
-     decision quality stays the only thing a tier changes. The keys are released
-     every frame, which is what makes them the single taps the edge trigger wants. */
-  KEYS[k.dash] = false; KEYS[k.hop] = false;
-  if (!chaosOn()) return;
-
-  const gap = Math.hypot(you.x - me.x, you.z - me.z);
-  const aimed = gap > 0 &&
-    ((you.x - me.x) * dx + (you.z - me.z) * dz) / gap > 0.72;   // pointing at them
-  // dash to close the last stride, and only when the shove would land
-  if (aimed && gap < 2.6 && gap > 0.9 && Math.random() < T.dashOdds)
-    KEYS[k.dash] = true;
-
-  // hop out from under a charge — the same read the sidestep bait already makes
-  const h = AI.hist[Math.max(0, AI.hist.length - 1 - T.react)];
-  const away = Math.hypot(me.x - h.x, me.z - h.z) || 1;
-  const closing = (h.vx * (me.x - h.x) + h.vz * (me.z - h.z)) / away;
-  if (closing > 0.10 && gap < 2.2 && Math.random() < T.hopOdds)
-    KEYS[k.hop] = true;
-}
-
-/* ═════════════════════════ POINTING CONTROL ═════════════════════════
-   Aim your hand at the webcam and BLUE walks that way. Available in VS AI only:
-   two people cannot share one camera, and a basho is a record you should not set
-   on a control scheme this loose.
-
-   The pipeline, per prediction:
-     webcam frame → 5 crops (full, left, right, top, bottom), each drawn to
-     224² → one batched MobileNet pass → 5 × 1024-d embeddings, each
-     L2-normalised → concatenated to 5120 → the trained 5120→64→5 head in
-     pointing-model.js → neutral / up / down / left / right.
-
-   That feature layout is not a choice, it is what the model in
-   pointing-model.js was trained on — its own header states the format and its
-   first weight matrix is 64×5120. The five crops exist because a MobileNet
-   embedding is nearly position-blind: pooled over the whole frame, a hand at
-   the left edge and the same hand at the right produce almost the same 1024
-   numbers. Splitting the frame first is what puts the position back in.
-
-   This is the one part of the game that is neither self-contained nor offline:
-   TF.js and MobileNet come from a CDN, and the weights come from Google's
-   servers. Nothing is fetched until you actually turn the mode on, so the
-   keyboard game stays dependency-free. */
-
-const PC_CLASSES = ["neutral", "up", "down", "left", "right"];
-// [x, y, w, h] as fractions of the frame, in the order the trained head expects
-const PC_CROPS = [
-  [0, 0,   1,   1  ],   // full
-  [0, 0,   0.5, 1  ],   // left
-  [0.5, 0, 0.5, 1  ],   // right
-  [0, 0,   1,   0.5],   // top
-  [0, 0.5, 1,   0.5],   // bottom
-];
-const PC_SIZE = 224;                    // MobileNet's input square
-const PC_INTERVAL = 130;                // ms between predictions — ~8/s
-const PC_SMOOTH = 0.45;                 // weight of the newest frame
-/* Each entry is a list of places to try in order, first one that loads wins.
-   The trained head is 6.9 MB, far too much to inline into a file the keyboard
-   game loads every time — so it stays a sibling file, with the copy in the
-   repo as a fallback. That way a checkout uses its own local weights and never
-   touches the network for them, while someone who downloaded nothing but
-   sumo.html still gets the mode. The @main URL follows the branch, so a
-   retrained model reaches those players too, within jsDelivr's cache window. */
-const PC_SRC = [
-  ["https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"],
-  ["https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"],
-  ["pointing-model.js",
-   "https://cdn.jsdelivr.net/gh/JoulBaransi/sumo-game@main/pointing-model.js"],
-];
-
-const POINTC = {
-  active: false,        // camera and model are live and driving BLUE
-  starting: false,      // mid-startup, so a second request can't race it
-  fail: null,           // a message to show instead of a prediction
-  stream: null, mobilenet: null, crops: null,
-  timer: 0, busy: false,
-  vec: [0, 0],          // what drive() reads; [0,0] until a real prediction lands
-  probs: null,          // exponentially-smoothed class probabilities
-};
-
-// pointing is a VS AI affordance only, never 2-player and never a basho
-const pcAvailable = () => MENU.mode === 1 && !TOUR.on;
-
-function pcLabel(t) { HUD.pcamLbl.textContent = t; }
-
-/* Pull in TF.js, MobileNet and the trained head, once, on first use. Loading
-   them up front would put a CDN round trip in front of a game that otherwise
-   needs nothing but the file itself. */
-function pcLoadDeps() {
-  if (POINTC.deps) return POINTC.deps;
-  const one = src => new Promise((ok, no) => {
-    const s = document.createElement("script");
-    s.src = src; s.async = false;
-    s.onload = () => ok(src);
-    s.onerror = () => no(new Error(src.split("/").pop() + " failed to load"));
-    document.head.appendChild(s);
-  });
-  // walk each entry's alternatives until one loads; only then move to the next
-  const step = alts => alts.reduce(
-    (p, src) => p.catch(() => one(src)), Promise.reject());
-  POINTC.deps = PC_SRC.reduce((chain, alts) => chain.then(() => {
-    // the model may already be on the page as a plain script tag
-    if (alts[0] === "pointing-model.js" && window.POINTING_MODEL) return null;
-    return step(alts);
-  }), Promise.resolve());
-  return POINTC.deps;
-}
-
-/* One webcam frame → the 5120 features the head was trained on.
-   The five crops go through MobileNet as a single batch: five separate infer()
-   calls cost roughly five times as much, and at 8 predictions a second that is
-   the difference between free and visible in the frame rate. */
-async function pcFeatures(video) {
-  const M = window.POINTING_MODEL;
-  const D = M.inputSize / M.crops;               // 1024 per crop
-  if (!video.videoWidth) return null;            // no frame yet
-  if (!POINTC.crops) POINTC.crops = PC_CROPS.map(() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = PC_SIZE;
-    c.__ctx = c.getContext("2d");
-    return c;
-  });
-  const vw = video.videoWidth, vh = video.videoHeight;
-  PC_CROPS.forEach((r, i) => POINTC.crops[i].__ctx.drawImage(
-    video, r[0] * vw, r[1] * vh, r[2] * vw, r[3] * vh, 0, 0, PC_SIZE, PC_SIZE));
-
-  const emb = tf.tidy(() => POINTC.mobilenet.infer(
-    tf.stack(POINTC.crops.map(c => tf.browser.fromPixels(c))), true));
-  const flat = await emb.data();                 // [crops × D]
-  emb.dispose();
-  if (flat.length !== M.inputSize)
-    throw new Error("got " + flat.length + " features, model wants " + M.inputSize);
-
-  /* L2-normalise each crop's embedding on its own, then concatenate. The model's
-     header says "L2-normalized" without saying whether that was per crop or over
-     the whole 5120, and the trainer that generated it isn't here to check. It
-     turns out barely to matter: the head's biases are tiny next to its
-     activations, so the two differ by very nearly a single positive scale
-     factor, ReLU is positively homogeneous, and softmax's argmax is
-     scale-invariant. Measured across seven frames the two agree on every
-     prediction and differ only in confidence. Since argmax picks the direction
-     and drive() normalises the magnitude, either reading steers the same way. */
-  const x = new Float32Array(M.inputSize);
-  for (let c = 0; c < M.crops; c++) {
-    let s = 0;
-    for (let i = 0; i < D; i++) { const v = flat[c * D + i]; s += v * v; }
-    const inv = 1 / (Math.sqrt(s) || 1);
-    for (let i = 0; i < D; i++) x[c * D + i] = flat[c * D + i] * inv;
-  }
-  return x;
-}
-
-/* Forward pass through the exported head — two small matrices, no tf needed.
-   The inner loop walks the WEIGHT row, not the input, so a feature vector of the
-   wrong length is an error rather than a confident answer computed from part of
-   the model. */
-function pcForward(x) {
-  const M = window.POINTING_MODEL;
-  if (x.length !== M.inputSize)
-    throw new Error("feature length " + x.length + " != " + M.inputSize);
-  let h = x;
-  for (const L of M.layers) {
-    const out = new Float32Array(L.bias.length);
-    for (let o = 0; o < L.bias.length; o++) {
-      const row = L.weights[o];
-      let s = L.bias[o];
-      for (let i = 0; i < row.length; i++) s += h[i] * row[i];
-      out[o] = L.activation === "relu" ? Math.max(0, s) : s;
-    }
-    h = out;
-  }
-  let mx = -Infinity;
-  for (const v of h) if (v > mx) mx = v;
-  let sum = 0;
-  const p = Array.from(h, v => { const e = Math.exp(v - mx); sum += e; return e; });
-  return p.map(v => v / (sum || 1));
-}
-
-/* Probabilities → a direction. The two winning axis probabilities are passed
-   through raw: drive() normalises whatever it gets, so their ratio survives and
-   a diagonal point comes out at the matching diagonal angle instead of snapping
-   to one of eight compass points. */
-function pcVec(p) {
-  let best = 0;
-  for (let i = 1; i < p.length; i++) if (p[i] > p[best]) best = i;
-  if (best === 0) return [0, 0];                 // neutral wins → stand still
-  const [, up, down, left, right] = p;
-  return [right >= left ? right : -left,         // +x is right
-          down  >= up   ? down  : -up];          // +z is toward the camera
-}
-
-function pcDrawCompass(vec, label) {
-  const cv = HUD.pcamCanvas, ctx = cv.__ctx || (cv.__ctx = cv.getContext("2d"));
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  const cx = cv.width / 2, cy = cv.height / 2 - 6, R = 30;
-  ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.lineWidth = 1.4;
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.2832); ctx.stroke();
-  const m = Math.hypot(vec[0], vec[1]);
-  if (m > 1e-4) {
-    // x is mirrored to match the mirrored preview
-    const dx = -(vec[0] / m), dz = vec[1] / m;
-    ctx.strokeStyle = "#d9b877"; ctx.fillStyle = "#d9b877"; ctx.lineWidth = 2.4;
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * R, cy + dz * R); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx + dx * R, cy + dz * R, 3, 0, 6.2832); ctx.fill();
-  } else {
-    ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 6.2832); ctx.fill();
-  }
-  pcLabel(label);
-}
-
-async function pcTick() {
-  if (POINTC.busy || !POINTC.active) return;
-  POINTC.busy = true;
-  try {
-    const x = await pcFeatures(HUD.pcamVideo);
-    if (x && POINTC.active) {
-      const probs = pcForward(x);
-      // exponential smoothing, so one noisy frame can't yank the fighter
-      if (!POINTC.probs) POINTC.probs = probs;
-      else POINTC.probs = POINTC.probs.map((v, i) =>
-        v * (1 - PC_SMOOTH) + probs[i] * PC_SMOOTH);
-      POINTC.vec = pcVec(POINTC.probs);
-      let best = 0;
-      POINTC.probs.forEach((v, i) => { if (v > POINTC.probs[best]) best = i; });
-      pcDrawCompass(POINTC.vec, PC_CLASSES[best].toUpperCase() + "  " +
-                    Math.round(POINTC.probs[best] * 100) + "%");
-    }
-  } catch (e) {
-    // a dropped frame is nothing; a broken pipeline should say so out loud
-    POINTC.fail = e.message;
-    pcLabel(String(e.message).slice(0, 34).toUpperCase());
-  }
-  POINTC.busy = false;
-}
-
-function pcLoop() {
-  if (!POINTC.active) return;
-  pcTick();
-  POINTC.timer = setTimeout(pcLoop, PC_INTERVAL);
-}
-
-async function startPointing() {
-  if (POINTC.active || POINTC.starting) return;
-  POINTC.starting = true; POINTC.fail = null;
-  POINTC.probs = null; POINTC.vec = [0, 0];
-  HUD.pcam.classList.add("on");
-  try {
-    pcLabel("LOADING MODEL…");
-    await pcLoadDeps();
-    if (!window.POINTING_MODEL) throw new Error("no trained model");
-    pcLabel("STARTING CAMERA…");
-    POINTC.stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 320, height: 240, facingMode: "user" }, audio: false });
-    HUD.pcamVideo.srcObject = POINTC.stream;
-    await HUD.pcamVideo.play();
-    if (!POINTC.mobilenet) {
-      pcLabel("LOADING MOBILENET…");
-      POINTC.mobilenet = await mobilenet.load({ version: 1, alpha: 1.0 });
-    }
-    /* One throwaway pass before going live. mobilenet.load() warms up a batch of
-       one, and a batch of five compiles its own set of WebGL programs — measured
-       at 812 ms the first time against 50 ms after. Paying that here costs a beat
-       on a screen that already says it is loading, instead of hitching the game
-       on the opening tachi-ai. */
-    pcLabel("WARMING UP…");
-    try { pcForward(await pcFeatures(HUD.pcamVideo)); } catch (e) { /* fine */ }
-    POINTC.active = true;
-    POINTC.starting = false;
-    pcLoop();
-  } catch (e) {
-    POINTC.starting = false;
-    POINTC.fail = e && e.message ? e.message : "unavailable";
-    pcLabel(/denied|not allowed|permission/i.test(POINTC.fail)
-      ? "CAMERA BLOCKED — USING KEYS" : "UNAVAILABLE — USING KEYS");
-    // hand control back rather than leaving a dead panel and a frozen fighter
-    setTimeout(stopPointing, 2200);
-  }
-}
-
-function stopPointing() {
-  POINTC.active = false; POINTC.starting = false;
-  clearTimeout(POINTC.timer);
-  HUD.pcam.classList.remove("on");
-  if (POINTC.stream) {
-    for (const t of POINTC.stream.getTracks()) t.stop();   // the camera light goes out
-    POINTC.stream = null;
-  }
-  HUD.pcamVideo.srcObject = null;
-  POINTC.vec = [0, 0]; POINTC.probs = null;
-}
-
-// called wherever the mode, the setting or the screen changes
-function pcSync() {
-  const want = OPT.point && pcAvailable() && G.state !== "menu";
-  if (want) startPointing(); else stopPointing();
 }
 
 function collide(a, b) {
@@ -3466,20 +2765,14 @@ function step() {
   }
 
   G.roundT++;
-  /* In chaos the ring holds its full radius rather than closing from the start —
-     that is the bigger arena. It still closes eventually, and fast, because
-     otherwise nothing makes a round end. */
-  const chaos = chaosOn();
-  const delay = chaos ? CHAOS.hold : CFG.shrinkDelay;
-  const rate  = chaos ? CHAOS.close : CFG.shrinkRate;
   // one-shot as the ring starts to close: a low swell under the warning
-  if (G.roundT === delay + 1) {
+  if (G.roundT === CFG.shrinkDelay + 1) {
     tn({ f: 62, f1: 116, dur: 1.5, gain: 0.16, atk: 0.7, type: "triangle" });
     sndClack(0.7, 0.7);
   }
-  if (G.roundT > delay) {
+  if (G.roundT > CFG.shrinkDelay) {
     const was = G.radius;
-    G.radius = Math.max(CFG.minR, G.radius - rate);
+    G.radius = Math.max(CFG.minR, G.radius - CFG.shrinkRate);
     if (was > CFG.minR) HUD.warn.classList.add("on");
     if (G.radius > CFG.minR && G.roundT % 53 === 0)     // clay groaning inward
       tn({ f: 78 + srand() * 26, f1: 52, dur: 0.7, gain: 0.05, atk: 0.25, type: "triangle" });
@@ -3491,10 +2784,7 @@ function step() {
 
   if (AI.on && F[1].alive && F[0].alive) aiStep();
   for (const f of F) if (f.alive) drive(f);
-  if (chaosOn()) syncDash();
-  // a charge passes under a hop; on landing the usual overlap push takes over
-  if (F[0].alive && F[1].alive && !airborne(F[0]) && !airborne(F[1]))
-    collide(F[0], F[1]);
+  if (F[0].alive && F[1].alive) collide(F[0], F[1]);
 
   // ── edge test: centre outside the radius ──
   let fell = 0;
@@ -4714,11 +4004,7 @@ window.__g = { G, F, CFG, CAM, MAT, parts, rings, step, startRound, newMatch, en
                FLAKES, SNOW_ROCKS, SNOW_DOMES, stepFlakes,
                TOUR, SCHEDULE, RANKS, BASHO_DAYS, tourStart, tourBeginDay,
                tourNext, tourEnd, tourRecord, bashoVerdict, rebuildPips,
-               TEAM, MAWASHI, MAWASHI_KANJI, mawashiOf, livery, applyChars, setFoeLivery,
-               setMeLivery, aiStep, KEYS, CTRL,
-               CHAOS, chaosOn, airborne, syncFoot, syncDash, sndDash, sndHop,
-               POINTC, PC_CLASSES, PC_CROPS, PC_SIZE, pcLoadDeps, pcFeatures,
-               pcForward, pcVec, pcSync, pcAvailable, startPointing, stopPointing };
+               TEAM, applyChars, setFoeLivery, aiStep, KEYS, CTRL };
 </script>
 </body>
 </html>
